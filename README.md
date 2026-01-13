@@ -66,6 +66,10 @@ Everything lives in your `Documents/NegPy` folder:
 ## Roadmap
 Things I want to add later: [ROADMAP.md](docs/ROADMAP.md)
 
+## Changelog:
+
+[CHANGELOG.md](docs/CHANGELOG.md)
+
 ---
 
 ### For Developers
