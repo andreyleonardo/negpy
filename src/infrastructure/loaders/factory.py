@@ -3,6 +3,7 @@ from typing import Any, ContextManager
 from src.infrastructure.loaders.pakon_loader import PakonLoader
 from src.infrastructure.loaders.tiff_loader import TiffLoader
 from src.infrastructure.loaders.rawpy_loader import RawpyLoader
+from src.infrastructure.loaders.constants import SUPPORTED_TIFF_EXTENSIONS
 
 
 class LoaderFactory:
@@ -21,7 +22,7 @@ class LoaderFactory:
         if PakonLoader.can_handle(file_path):
             return self._pakon.load(file_path)
 
-        if ext in [".tif", ".tiff"]:
+        if ext in SUPPORTED_TIFF_EXTENSIONS:
             return self._tiff.load(file_path)
 
         return self._rawpy.load(file_path)

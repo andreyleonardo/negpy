@@ -5,6 +5,7 @@ from src.infrastructure.loaders.native_picker import NativeFilePicker
 from src.kernel.system.config import APP_CONFIG
 from src.ui.state.state_manager import save_settings
 from src.ui.components.sidebar.helpers import render_control_checkbox
+from src.infrastructure.loaders.helpers import get_supported_raw_dotless
 
 
 def render_file_manager() -> None:
@@ -63,7 +64,7 @@ def render_file_manager() -> None:
             # Streamlit uploader (Docker)
             raw_uploaded_files = st.file_uploader(
                 "Load RAW files",
-                type=["dng", "tiff", "nef", "arw", "raw", "raf"],
+                type=get_supported_raw_dotless(),
                 accept_multiple_files=True,
             )
             current_uploaded_names = (

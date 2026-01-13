@@ -4,6 +4,8 @@ import os
 import json
 import sys
 from typing import Optional
+from src.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
+from src.infrastructure.loaders.helpers import get_supported_raw_wildcards
 
 
 def _bring_to_front() -> None:
@@ -32,8 +34,7 @@ def pick_files(initial_dir: Optional[str] = None) -> None:
         filetypes=[
             (
                 "RAW files",
-                "*.dng *.DNG *.tiff *.TIFF *.tif *.TIF *.nef *.NEF "
-                "*.arw *.ARW *.raw *.RAW *.raf *.RAF",
+                get_supported_raw_wildcards(),
             ),
             ("All files", "*.*"),
         ],
@@ -61,11 +62,10 @@ def pick_folder(initial_dir: Optional[str] = None) -> None:
     if not folder_path:
         output = json.dumps(["", []])
     else:
-        supported_exts = {".dng", ".tiff", ".tif", ".nef", ".arw", ".raw", ".raf"}
         found_files = []
         for r, _, files in os.walk(folder_path):
             for file in files:
-                if os.path.splitext(file)[1].lower() in supported_exts:
+                if os.path.splitext(file)[1].lower() in SUPPORTED_RAW_EXTENSIONS:
                     found_files.append(os.path.abspath(os.path.join(r, file)))
         output = json.dumps([os.path.abspath(folder_path), found_files])
 

@@ -1,5 +1,6 @@
 import os
 from typing import List, Set
+from src.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 
 
 class FolderWatchService:
@@ -7,7 +8,7 @@ class FolderWatchService:
     Scans for new RAW/TIFF assets.
     """
 
-    SUPPORTED_EXTS = {".dng", ".tiff", ".tif", ".nef", ".arw", ".raw", ".raf"}
+    SUPPORTED_EXTS = SUPPORTED_RAW_EXTENSIONS
 
     @classmethod
     def scan_for_new_files(

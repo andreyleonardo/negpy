@@ -1,0 +1,22 @@
+from src.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
+
+
+def get_supported_raw_wildcards() -> str:
+    """
+    Returns raw formats as string for tkinter
+    for tkinter (e.g., "*.dng *.DNG *.nef *.NEF").
+    """
+    wildcards = []
+    for ext in sorted(SUPPORTED_RAW_EXTENSIONS):
+        base = ext.lstrip(".")
+        wildcards.append(f"*.{base}")
+        wildcards.append(f"*.{base.upper()}")
+
+    return " ".join(wildcards)
+
+
+def get_supported_raw_dotless() -> list[str]:
+    """
+    Returns in format for streamlit native dialog
+    """
+    return [ext.lstrip(".") for ext in sorted(SUPPORTED_RAW_EXTENSIONS)]

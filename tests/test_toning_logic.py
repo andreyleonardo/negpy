@@ -17,9 +17,9 @@ class TestToningLogic(unittest.TestCase):
     def test_simulate_paper_substrate_tint(self):
         """Verify tint application."""
         img = np.full((10, 10, 3), 1.0, dtype=np.float32)  # White input
-        res = simulate_paper_substrate(img, "Antique Ivory")
+        res = simulate_paper_substrate(img, "Warm Fiber")
 
-        profile = PAPER_PROFILES["Antique Ivory"]
+        profile = PAPER_PROFILES["Warm Fiber"]
         expected_tint = np.array(profile.tint, dtype=np.float32)
         np.testing.assert_array_almost_equal(res[0, 0], expected_tint, decimal=2)
 
