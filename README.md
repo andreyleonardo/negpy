@@ -43,7 +43,7 @@ I provide an `.AppImage`. It should just work. But across all different distros 
 Since this is a free hobby project, I don't pay Apple or Microsoft ransom for their developer certificates. You'll get a scary warning the first time you run it.
 
 **🍎 MacOS**:
-1.  Double click `.dng` file & drag the app to `/Applications`.
+1.  Double click `.dmg` file & drag the app to `/Applications`.
 2.  Open Terminal and run: `xattr -cr /Applications/NegPy.app` (this gets rid of the warning).
 3.  Launch it.
 
