@@ -17,7 +17,6 @@ def render_film_strip() -> None:
 
     viewport_h = get_viewport_height()
     container_h = int(viewport_h * 0.9) if viewport_h else 1200
-
     with st.container(height=container_h):
         num_cols = 2
         uploaded_files = session.uploaded_files
