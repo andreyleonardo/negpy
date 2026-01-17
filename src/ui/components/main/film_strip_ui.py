@@ -1,6 +1,10 @@
 import streamlit as st
 from src.ui.components.main.actions_ui import change_file
 from src.domain.session import WorkspaceSession
+from src.ui.js_helpers import get_viewport_height
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def render_film_strip() -> None:
@@ -11,7 +15,10 @@ def render_film_strip() -> None:
     if not session.uploaded_files:
         return
 
-    with st.container(height=1200):
+    viewport_h = get_viewport_height()
+    container_h = int(viewport_h * 0.9) if viewport_h else 1200
+
+    with st.container(height=container_h):
         num_cols = 2
         uploaded_files = session.uploaded_files
         for i in range(0, len(uploaded_files), num_cols):

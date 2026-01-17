@@ -113,7 +113,10 @@ def render_image_view(
 
         def get_mode_state(vm: Any, field: str) -> bool:
             key = vm.get_key(field)
-            return bool(st.session_state.get(f"w_{key}", False) or st.session_state.get(key, False))
+            return bool(
+                st.session_state.get(f"w_{key}", False)
+                or st.session_state.get(key, False)
+            )
 
         is_dust_mode = get_mode_state(vm_retouch, "pick_dust")
         is_assist_mode = get_mode_state(geo_vm, "pick_assist")

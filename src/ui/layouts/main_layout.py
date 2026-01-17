@@ -2,7 +2,7 @@ import streamlit as st
 from PIL import Image
 from typing import Any, Tuple
 from src.ui.state.session_context import SessionContext
-from src.kernel.system.version import get_app_version
+from src.kernel.system.version import get_app_version, check_for_updates
 from src.ui.state.view_models import SidebarState
 from src.ui.layouts.image_view import render_image_view
 from src.ui.components.main.actions_ui import render_actions_menu
@@ -32,17 +32,26 @@ def render_layout_header(ctx: SessionContext) -> Tuple[Any, Any]:
         """Callback to save the slider value to the orientation-specific key."""
         st.session_state[target_key] = st.session_state.working_copy_size
 
+    if "update_available" not in st.session_state:
+        st.session_state.update_available = check_for_updates()
+
     main_area = st.container()
     with main_area:
         c_logo, c_status, c_empty, c_slider = st.columns([2, 3, 1, 1])
         with c_logo:
             version = get_app_version()
-            st.title(
-                f":red[:material/camera_roll:] NegPy :grey[{version}]",
-                width="stretch",
-            )
+            new_ver = st.session_state.update_available
+            title_md = f":red[:material/camera_roll:] NegPy :grey[{version}]"
+            help_text = "Using latest version"
+
+            if new_ver:
+                title_md += " :yellow[:material/system_update_alt:]"
+                help_text = f"New version available: {new_ver}"
+
+            st.title(title_md, help=help_text)
+
         with c_status:
-            status_container = st.container(height=48, border=False, width="stretch")
+            status_container = st.container(height=48, border=False)
             status_area = status_container.empty()
         with c_empty:
             pass

@@ -10,7 +10,9 @@
 - Added Input/Output .icc profile support
 - Added input icc profile for narrowband RGB (should mitigate common oversaturation issues)
 - Added horizontal & vertical flip options
+- Added 
 - UI redesign: main actions moved under the preview, film strip moved to the right.
+- Add new version check on startup (Displays tooltip near the logo if new version is available)
 
 ## 0.9.2
 

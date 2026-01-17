@@ -100,9 +100,11 @@ class AppController:
 
         vm = ExposureViewModel()
         st.session_state[vm.get_key("wb_cyan")] = 0.0
-        st.session_state[vm.get_key("wb_magenta")] = float(np.clip(-dm, -1, 1))
-        st.session_state[vm.get_key("wb_yellow")] = float(np.clip(-dy, -1, 1))
+        # Use calculated shifts directly (no negation) to correct the cast
+        st.session_state[vm.get_key("wb_magenta")] = float(np.clip(dm, -1, 1))
+        st.session_state[vm.get_key("wb_yellow")] = float(np.clip(dy, -1, 1))
         st.session_state[vm.get_key("pick_wb")] = False
+        st.toast(f"WB Picked: M={dm:.2f}, Y={dy:.2f}")
 
         from src.ui.state.state_manager import save_settings
 
