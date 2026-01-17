@@ -1,6 +1,6 @@
 import streamlit as st
 from src.ui.state.view_models import LabViewModel
-from src.ui.components.sidebar.helpers import render_control_slider
+from src.ui.components.helpers import render_control_slider
 
 
 def render_lab_scanner_section() -> None:

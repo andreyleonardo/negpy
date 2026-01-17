@@ -61,7 +61,6 @@ def rotate_file(direction: int) -> None:
     """
     st.session_state.rotation = (st.session_state.get("rotation", 0) + direction) % 4
 
-    # Transform manual crop if exists to preserve it across rotations
     manual_crop = st.session_state.get("manual_crop_rect")
     if manual_crop:
         x1, y1, x2, y2 = manual_crop
@@ -97,7 +96,6 @@ def render_actions_menu() -> bool:
     """
     session: WorkspaceSession = st.session_state.session
 
-    # Row 1: Navigation & Transform (6 columns)
     c1, c2, c3, c4, c5, c6 = st.columns([1, 1, 1, 1, 1, 1])
     with c1:
         st.button(
@@ -150,7 +148,6 @@ def render_actions_menu() -> bool:
             args=("vertical",),
         )
 
-    # Row 2: Clipboard & Primary Action
     ca, cb, cc, cd, ce = st.columns([1, 1, 2, 1, 1])
     with ca:
         st.button(

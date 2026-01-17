@@ -4,7 +4,7 @@ from src.kernel.system.config import APP_CONFIG, DEFAULT_WORKSPACE_CONFIG
 from src.domain.constants import SUPPORTED_ASPECT_RATIOS, VERTICAL_ASPECT_RATIOS
 from src.domain.models import ColorSpace
 from src.ui.state.view_models import SidebarState
-from src.ui.components.sidebar.helpers import (
+from src.ui.components.helpers import (
     render_control_slider,
     render_control_checkbox,
     render_control_selectbox,

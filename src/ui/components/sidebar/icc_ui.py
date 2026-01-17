@@ -2,7 +2,7 @@ import streamlit as st
 import os
 from src.domain.session import WorkspaceSession
 from src.domain.models import ICCMode
-from src.ui.components.sidebar.helpers import (
+from src.ui.components.helpers import (
     render_control_selectbox,
     render_control_checkbox,
     render_control_radio,
@@ -17,7 +17,6 @@ def render_icc_section() -> None:
         available_iccs = ColorService.get_available_profiles()
         all_icc_paths = ["None"] + available_iccs
 
-        # Initialize session state from session object if needed
         if "icc_profile_path" not in st.session_state:
             st.session_state.icc_profile_path = session.icc_profile_path or "None"
         if "icc_mode" not in st.session_state:
@@ -36,7 +35,6 @@ def render_icc_section() -> None:
             help_text="Select ICC profile for simulation or correction.",
         )
 
-        # Update Session
         session.icc_profile_path = (
             str(selected_path) if selected_path != "None" else None
         )

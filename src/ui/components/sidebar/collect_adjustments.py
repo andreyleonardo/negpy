@@ -12,7 +12,7 @@ from src.ui.components.sidebar.export_ui import render_export_section
 from src.ui.components.sidebar.presets_ui import render_presets
 from src.ui.components.sidebar.analysis_ui import render_analysis_section
 from src.ui.components.sidebar.icc_ui import render_icc_section
-from src.ui.components.sidebar.helpers import (
+from src.ui.components.helpers import (
     render_control_selectbox,
     reset_wb_settings,
 )

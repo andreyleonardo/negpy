@@ -4,6 +4,7 @@ from typing import Any, Tuple
 from src.ui.state.session_context import SessionContext
 from src.kernel.system.version import get_app_version, check_for_updates
 from src.ui.state.view_models import SidebarState
+from src.ui.components.helpers import render_control_slider
 from src.ui.layouts.image_view import render_image_view
 from src.ui.components.main.actions_ui import render_actions_menu
 from src.ui.components.main.geometry_ui import render_geometry_section
@@ -56,14 +57,15 @@ def render_layout_header(ctx: SessionContext) -> Tuple[Any, Any]:
         with c_empty:
             pass
         with c_slider:
-            st.slider(
+            render_control_slider(
                 "Display Size",
                 600,
                 2000,
+                default_val=1000,
                 step=100,
                 key="working_copy_size",
                 on_change=update_orientation_size,
-                help="Scaling of the preview image in the browser. Does not affect internal processing resolution.",
+                help_text="Scaling of the preview image in the browser. Does not affect internal processing resolution.",
             )
 
     return main_area, status_area

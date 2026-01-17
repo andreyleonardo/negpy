@@ -2,7 +2,7 @@ import streamlit as st
 from src.domain.constants import SUPPORTED_ASPECT_RATIOS
 from src.features.geometry.models import CropMode
 from src.ui.state.view_models import GeometryViewModel
-from src.ui.components.sidebar.helpers import (
+from src.ui.components.helpers import (
     render_control_slider,
     render_control_checkbox,
     render_control_selectbox,
@@ -16,19 +16,18 @@ def render_geometry_section() -> None:
     geo_conf = geo_vm.to_config()
 
     with st.container(border=True):
-        # Row 1: Crop Mode, Ratio/Pick, Assist/Reset, Keep Borders, Offset, Rotation
         c1, c2, c3, c4, c5, c6 = st.columns([1.5, 1.2, 1.2, 1.2, 2, 2])
 
         with c1:
             crop_modes = list(CropMode)
             current_mode = geo_vm.crop_mode
 
-            selected_label = st.selectbox(
+            selected_label = render_control_selectbox(
                 "Crop Mode",
                 options=[m.value for m in crop_modes],
-                index=crop_modes.index(current_mode),
-                key="geometry_crop_mode_select",
-                help="Select cropping method.",
+                default_val=current_mode.value,
+                key="crop_mode_str",
+                help_text="Select cropping method.",
             )
 
             selected_mode = CropMode(selected_label)
@@ -49,7 +48,7 @@ def render_geometry_section() -> None:
                 )
             with c3:
                 if geo_conf.manual_crop_rect is not None:
-                    st.write("##")  # Align with selectbox
+                    st.write("##")
                     if st.button(
                         "Reset Crop", key="reset_manual_crop_btn", width="stretch"
                     ):
@@ -66,9 +65,8 @@ def render_geometry_section() -> None:
                     help_text="Aspect ratio to crop to.",
                 )
             with c3:
-                # Show Clear Assist if active, otherwise Pick Assist toggle
                 if geo_conf.autocrop_assist_luma is not None:
-                    st.write("##")  # Align with selectbox
+                    st.write("##")
                     if st.button(
                         "Clear Assist", key="clear_assist_btn", width="stretch"
                     ):

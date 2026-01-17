@@ -4,7 +4,7 @@ from src.domain.session import WorkspaceSession
 from src.infrastructure.loaders.native_picker import NativeFilePicker
 from src.kernel.system.config import APP_CONFIG
 from src.ui.state.state_manager import save_settings
-from src.ui.components.sidebar.helpers import render_control_checkbox
+from src.ui.components.helpers import render_control_checkbox
 from src.infrastructure.loaders.helpers import get_supported_raw_dotless
 
 

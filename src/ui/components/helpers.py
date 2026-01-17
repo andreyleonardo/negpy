@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any, Literal, Callable
+from typing import Optional, Dict, Any, Literal, Callable, Tuple
 from src.features.exposure.logic import density_to_cmy
 import streamlit as st
 import numpy as np
@@ -145,6 +145,44 @@ def render_control_slider(
             key, float(res) if res is not None else None, current_val
         )
     )
+
+
+def render_control_range_slider(
+    label: str,
+    min_val: float,
+    max_val: float,
+    default_val: Tuple[float, float],
+    step: float,
+    key: str,
+    help_text: Optional[str] = None,
+    disabled: bool = False,
+    on_change: Optional[Callable] = None,
+) -> Tuple[float, float]:
+    """
+    Range slider with state sync.
+    """
+    current_val = _ensure_and_get_state(key, default_val, lambda x: tuple(x))
+
+    w_key = _sync_shadow_state(key, current_val)
+
+    def _on_change_cb() -> None:
+        sync_state(key)
+        if on_change:
+            on_change()
+
+    res = st.slider(
+        label,
+        min_value=float(min_val),
+        max_value=float(max_val),
+        value=st.session_state[w_key],
+        step=float(step),
+        key=w_key,
+        help=help_text,
+        on_change=_on_change_cb,
+        disabled=disabled,
+    )
+
+    return tuple(_update_canonical_state(key, res, current_val))
 
 
 def render_control_checkbox(
