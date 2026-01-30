@@ -59,6 +59,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let coords = vec2<i32>(i32(gid.x), i32(gid.y));
     let out_uv = vec2<f32>(f32(coords.x) + 0.5, f32(coords.y) + 0.5) / vec2<f32>(f32(out_dims.x), f32(out_dims.y));
 
+    // Get input dimensions for aspect ratio correction
+    let in_dims = textureDimensions(input_tex);
+    let aspect = f32(in_dims.x) / f32(in_dims.y);
+
     // Let's transform UVs.
     // 1. Center UV
     var uv = out_uv - 0.5;
@@ -84,12 +88,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // 4. Inverse Fine Rotation
     if (params.fine_rotation != 0.0) {
-        let rad = radians(-params.fine_rotation);
+        let rad = radians(params.fine_rotation);
         let c = cos(rad);
         let s = sin(rad);
-        let rx = uv.x * c - uv.y * s;
-        let ry = uv.x * s + uv.y * c;
-        uv.x = rx;
+        // Convert to aspect-corrected space, rotate, then convert back
+        let corrected_x = uv.x * aspect;
+        let rx = corrected_x * c - uv.y * s;
+        let ry = corrected_x * s + uv.y * c;
+        uv.x = rx / aspect;
         uv.y = ry;
     }
 
