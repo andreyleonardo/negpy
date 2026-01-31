@@ -2,13 +2,14 @@ import numpy as np
 from src.domain.interfaces import PipelineContext
 from src.domain.types import ImageBuffer
 from src.features.exposure.models import ExposureConfig, EXPOSURE_CONSTANTS
+from src.features.process.models import ProcessConfig, ProcessMode
 from src.features.exposure.logic import apply_characteristic_curve
 from src.kernel.image.logic import get_luminance
 from src.features.exposure.normalization import (
     normalize_log_image,
     analyze_log_exposure_bounds,
+    LogNegativeBounds,
 )
-from src.domain.models import ProcessMode
 
 
 class NormalizationProcessor:
@@ -16,18 +17,24 @@ class NormalizationProcessor:
     Converts linear RAW to normalized log-density.
     """
 
-    def __init__(self, config: ExposureConfig):
+    def __init__(self, config: ProcessConfig):
         self.config = config
 
     def process(self, image: ImageBuffer, context: PipelineContext) -> ImageBuffer:
         epsilon = 1e-6
         img_log = np.log10(np.clip(image, epsilon, 1.0))
 
-        if self.config.use_batch_norm:
-            from src.features.exposure.normalization import LogNegativeBounds
-
+        if self.config.use_roll_average and self.config.locked_floors != (
+            0.0,
+            0.0,
+            0.0,
+        ):
             bounds = LogNegativeBounds(
                 floors=self.config.locked_floors, ceils=self.config.locked_ceils
+            )
+        elif self.config.local_floors != (0.0, 0.0, 0.0):
+            bounds = LogNegativeBounds(
+                floors=self.config.local_floors, ceils=self.config.local_ceils
             )
         else:
             cached_buffer = context.metrics.get("log_bounds_buffer_val")
@@ -44,7 +51,9 @@ class NormalizationProcessor:
                 context.metrics["log_bounds"] = bounds
                 context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
 
-        return normalize_log_image(img_log, bounds)
+        res = normalize_log_image(img_log, bounds)
+        context.metrics["normalized_log"] = res
+        return res
 
 
 class PhotometricProcessor:
