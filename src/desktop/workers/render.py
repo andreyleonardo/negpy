@@ -4,6 +4,7 @@ import numpy as np
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
 from src.domain.models import WorkspaceConfig
 from src.services.rendering.image_processor import ImageProcessor
+from src.features.exposure.normalization import analyze_log_exposure_bounds
 from src.kernel.system.logging import get_logger
 
 logger = get_logger(__name__)
@@ -31,6 +32,22 @@ class ThumbnailUpdateTask:
     filename: str
     file_hash: str
     buffer: np.ndarray
+
+
+@dataclass(frozen=True)
+class NormalizationTask:
+    """Request to analyze log bounds for a set of files."""
+
+    files: list[dict]
+    workspace_color_space: str
+
+
+@dataclass(frozen=True)
+class AssetDiscoveryTask:
+    """Request to find and hash image files in paths."""
+
+    paths: list[str]
+    supported_extensions: tuple[str, ...]
 
 
 class RenderWorker(QObject):
@@ -103,8 +120,11 @@ class RenderWorker(QObject):
 
 
 class ThumbnailWorker(QObject):
-    """Asynchronous thumbnail generation worker."""
+    """
+    Asynchronous thumbnail generation worker.
+    """
 
+    progress = pyqtSignal(int, int, str)
     finished = pyqtSignal(dict)
 
     def __init__(self, asset_store) -> None:
@@ -113,15 +133,24 @@ class ThumbnailWorker(QObject):
 
     @pyqtSlot(list)
     def generate(self, files: list) -> None:
-        """Generates thumbnails for a list of files."""
+        """
+        Generates thumbnails for a list of files with progress reporting.
+        """
         import asyncio
         from src.services.assets import thumbnails as thumb_service
 
         try:
+            total = len(files)
+
+            async def _progress_callback(current: int, name: str):
+                self.progress.emit(current, total, name)
+
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             new_thumbs = loop.run_until_complete(
-                thumb_service.generate_batch_thumbnails(files, self._store)
+                thumb_service.generate_batch_thumbnails(
+                    files, self._store, progress_callback=_progress_callback
+                )
             )
             self.finished.emit(new_thumbs)
         except Exception as e:
@@ -139,3 +168,107 @@ class ThumbnailWorker(QObject):
                 self.finished.emit({task.filename: thumb})
         except Exception as e:
             logger.error(f"Thumbnail update failure: {e}")
+
+
+class AssetDiscoveryWorker(QObject):
+    """
+    Background worker for file system crawling and hashing.
+    """
+
+    progress = pyqtSignal(int, int, str)
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    @pyqtSlot(AssetDiscoveryTask)
+    def process(self, task: AssetDiscoveryTask) -> None:
+        """
+        Scans paths for supported images and calculates hashes.
+        """
+        import os
+        from src.kernel.image.logic import calculate_file_hash
+
+        discovered_paths = []
+        for path in task.paths:
+            try:
+                if os.path.isdir(path):
+                    for f in os.listdir(path):
+                        if f.lower().endswith(task.supported_extensions):
+                            discovered_paths.append(os.path.join(path, f))
+                else:
+                    if path.lower().endswith(task.supported_extensions):
+                        discovered_paths.append(path)
+            except Exception as e:
+                logger.error(f"Discovery error for {path}: {e}")
+
+        total = len(discovered_paths)
+        valid_assets = []
+
+        for i, path in enumerate(discovered_paths):
+            name = os.path.basename(path)
+            self.progress.emit(i + 1, total, name)
+
+            try:
+                f_hash = calculate_file_hash(path)
+                if not f_hash.startswith("err_"):
+                    valid_assets.append({"name": name, "path": path, "hash": f_hash})
+            except Exception as e:
+                logger.error(f"Skipping invalid file {path}: {e}")
+
+        self.finished.emit(valid_assets)
+
+
+class NormalizationWorker(QObject):
+    """
+    Asynchronous batch normalization worker.
+    Analyzes multiple RAW files to find a consistent baseline.
+    """
+
+    progress = pyqtSignal(int, int, str)
+    finished = pyqtSignal(tuple, tuple)
+    error = pyqtSignal(str)
+
+    def __init__(self, preview_service, repo) -> None:
+        super().__init__()
+        self._preview_service = preview_service
+        self._repo = repo
+
+    @pyqtSlot(NormalizationTask)
+    def process(self, task: NormalizationTask) -> None:
+        """
+        Executes analysis on a batch of files.
+        """
+        total = len(task.files)
+        all_floors = []
+        all_ceils = []
+
+        try:
+            for i, f_info in enumerate(task.files):
+                self.progress.emit(i + 1, total, f_info["name"])
+
+                params = self._repo.load_file_settings(f_info["hash"])
+                use_camera_wb = params.exposure.use_camera_wb if params else False
+                analysis_buffer = params.exposure.analysis_buffer if params else 0.07
+
+                raw, _, _ = self._preview_service.load_linear_preview(
+                    f_info["path"],
+                    task.workspace_color_space,
+                    use_camera_wb=use_camera_wb,
+                )
+
+                bounds = analyze_log_exposure_bounds(
+                    raw, analysis_buffer=analysis_buffer
+                )
+                all_floors.append(bounds.floors)
+                all_ceils.append(bounds.ceils)
+
+            avg_floors = np.mean(all_floors, axis=0)
+            avg_ceils = np.mean(all_ceils, axis=0)
+
+            self.finished.emit(
+                tuple(map(float, avg_floors)),
+                tuple(map(float, avg_ceils)),
+            )
+
+        except Exception as e:
+            logger.error(f"Normalization analysis failure: {e}")
+            self.error.emit(str(e))

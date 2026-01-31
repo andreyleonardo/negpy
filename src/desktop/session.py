@@ -154,6 +154,10 @@ class DesktopSessionManager(QObject):
         sticky_shoulder_w = self.repo.get_global_setting("last_shoulder_width")
         sticky_shoulder_h = self.repo.get_global_setting("last_shoulder_hardness")
 
+        sticky_batch_norm = self.repo.get_global_setting("last_use_batch_norm")
+        sticky_floors = self.repo.get_global_setting("last_locked_floors")
+        sticky_ceils = self.repo.get_global_setting("last_locked_ceils")
+
         new_exp = config.exposure
         if sticky_buffer is not None:
             new_exp = replace(new_exp, analysis_buffer=float(sticky_buffer))
@@ -182,6 +186,13 @@ class DesktopSessionManager(QObject):
             new_exp = replace(new_exp, shoulder_width=float(sticky_shoulder_w))
         if sticky_shoulder_h is not None:
             new_exp = replace(new_exp, shoulder_hardness=float(sticky_shoulder_h))
+
+        if sticky_batch_norm is not None:
+            new_exp = replace(new_exp, use_batch_norm=bool(sticky_batch_norm))
+        if sticky_floors:
+            new_exp = replace(new_exp, locked_floors=tuple(sticky_floors))
+        if sticky_ceils:
+            new_exp = replace(new_exp, locked_ceils=tuple(sticky_ceils))
 
         config = replace(config, exposure=new_exp)
         # 3. Aspect Ratio & Offset
@@ -253,6 +264,13 @@ class DesktopSessionManager(QObject):
         self.repo.save_global_setting(
             "last_shoulder_hardness", config.exposure.shoulder_hardness
         )
+        self.repo.save_global_setting(
+            "last_use_batch_norm", config.exposure.use_batch_norm
+        )
+        self.repo.save_global_setting(
+            "last_locked_floors", config.exposure.locked_floors
+        )
+        self.repo.save_global_setting("last_locked_ceils", config.exposure.locked_ceils)
 
         self.repo.save_global_setting(
             "last_aspect_ratio", config.geometry.autocrop_ratio
@@ -342,22 +360,39 @@ class DesktopSessionManager(QObject):
 
             self.update_config(copy.deepcopy(self.state.clipboard))
 
-    def add_files(self, file_paths: List[str]) -> None:
+    def add_files(
+        self, file_paths: List[str], validated_info: Optional[List[Dict]] = None
+    ) -> None:
         """
-        Adds new files to the session, calculating hashes and updating the model.
+        Adds new files to the session.
+        If validated_info is provided, hashing is skipped.
         """
         import os
         from src.kernel.image.logic import calculate_file_hash
 
-        for path in file_paths:
-            f_hash = calculate_file_hash(path)
-            # Avoid duplicates
-            if any(f["hash"] == f_hash for f in self.state.uploaded_files):
-                continue
+        if validated_info:
+            for info in validated_info:
+                if any(f["hash"] == info["hash"] for f in self.state.uploaded_files):
+                    continue
+                self.state.uploaded_files.append(info)
+        else:
+            for path in file_paths:
+                try:
+                    f_hash = calculate_file_hash(path)
+                    if f_hash.startswith("err_"):
+                        continue
 
-            self.state.uploaded_files.append(
-                {"name": os.path.basename(path), "path": path, "hash": f_hash}
-            )
+                    # Avoid duplicates
+                    if any(f["hash"] == f_hash for f in self.state.uploaded_files):
+                        continue
+
+                    self.state.uploaded_files.append(
+                        {"name": os.path.basename(path), "path": path, "hash": f_hash}
+                    )
+                except Exception as e:
+                    from src.kernel.system.logging import get_logger
+
+                    get_logger(__name__).error(f"Failed to add {path}: {e}")
 
         self.asset_model.refresh()
         self.state_changed.emit()

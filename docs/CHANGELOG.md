@@ -1,5 +1,16 @@
 # Change Log
 
+## 0.9.5
+
+- Features:
+    - Added "Batch Normalization" button that performs bounds analysis for all loaded files and applies averaged settings to all. 
+    - Added button to sync apply export settings for all files.
+    - Added support for JPEG scans/files.
+- Bugfixes:
+    - Improved folder loading & thumbnail generation error handling & stability.
+    - Fix fine rotation when manual crop is applied (credit: https://github.com/rodg)
+    - Fix occasional wrong autoexposure calculation when file is rotated 90 degrees
+
 ## 0.9.4
 
 - Brand new, native desktop UI (pyqt6) instead of electron packaged streamlit app

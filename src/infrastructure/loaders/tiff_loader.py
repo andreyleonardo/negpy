@@ -3,32 +3,7 @@ import imageio.v3 as iio
 from typing import Any, ContextManager, Tuple
 from src.domain.interfaces import IImageLoader
 from src.kernel.image.logic import uint8_to_float32, uint16_to_float32
-
-
-class NonStandardFileWrapper:
-    """
-    numpy -> rawpy-like interface.
-    """
-
-    def __init__(self, data: np.ndarray):
-        self.data = data
-
-    def __enter__(self) -> "NonStandardFileWrapper":
-        return self
-
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        pass
-
-    def postprocess(self, **kwargs: Any) -> np.ndarray:
-        bps = kwargs.get("output_bps", 8)
-        half_size = kwargs.get("half_size", False)
-        data = self.data
-        if half_size:
-            data = data[::2, ::2]
-
-        if bps == 16:
-            return (data * 65535.0).astype(np.uint16)
-        return (data * 255.0).astype(np.uint8)
+from src.infrastructure.loaders.helpers import NonStandardFileWrapper
 
 
 class TiffLoader(IImageLoader):
