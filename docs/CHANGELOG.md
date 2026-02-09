@@ -1,5 +1,16 @@
 # Change Log
 
+## 0.9.11
+
+- **CLI Batch Converter**: New command-line interface for processing film negatives without the GUI.
+    - Supports all film modes (C41, B&W, E-6), output formats (TIFF 16-bit, JPEG), and color spaces.
+    - Accepts individual files, directories, or a mix of both. Directories are scanned recursively.
+    - Configurable density, contrast grade, sharpening, DPI, print size, and filename templates.
+    - Load full settings from a JSON file with `--settings`, with CLI flags as overrides.
+    - GPU acceleration enabled by default, disable with `--no-gpu`.
+    - Install with `pip install .` and run as `negpy [OPTIONS] FILE_OR_DIR ...`
+    - See [CLI documentation](CLI.md) for full reference.
+
 ## 0.9.10
 
 - Initial release of "E-6" mode for positives/slides

@@ -24,6 +24,7 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 *   **Keyboard Shortcuts**: [see here](docs/KEYBOARD.md)
 *   **Database**: All edits live in a local SQLite database, keyed by file hash. You can move or rename files without losing your work.
 *   **Print Ready**: Export module designed for printing, featuring border controls, ICC soft-proofing, and [dynamic filename templating](docs/TEMPLATING.md).
+*   **CLI Batch Converter**: Process entire folders of negatives from the command line without the GUI. Supports all film modes, output formats, and settings. [See CLI docs](docs/CLI.md).
 
 ---
 
@@ -35,7 +36,18 @@ It is built with **Python**, running natively on Linux, macOS, and Windows.
 
 ## 🚀 Getting Started
 
-### Download
+### CLI (pip install)
+
+If you have Python 3.13+, install NegPy as a package and use it from the terminal:
+
+```bash
+pip install .
+negpy --mode c41 --format tiff --output ./export /path/to/scans/
+```
+
+This processes all supported files in the directory and writes 16-bit TIFFs to `./export`. See the full [CLI reference](docs/CLI.md) for all options.
+
+### Download (GUI)
 Grab the latest release for your OS from the **[Releases Page](https://github.com/marcinz606/NegPy/releases)**.
 
 #### **🐧 Linux**
