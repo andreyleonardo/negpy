@@ -42,6 +42,7 @@ class TestBuildParser:
         assert args.filename_pattern is None
         assert args.no_gpu is False
         assert args.settings is None
+        assert args.crop_offset is None
 
     def test_all_flags(self):
         """Every flag specified."""
@@ -60,6 +61,7 @@ class TestBuildParser:
             "--filename-pattern", "{{ original_name }}_final",
             "--no-gpu",
             "--settings", "my_settings.json",
+            "--crop-offset", "5",
             "file1.dng", "file2.tiff",
         ])
         assert args.mode == "bw"
@@ -75,6 +77,7 @@ class TestBuildParser:
         assert args.filename_pattern == "{{ original_name }}_final"
         assert args.no_gpu is True
         assert args.settings == "my_settings.json"
+        assert args.crop_offset == 5
         assert args.inputs == ["file1.dng", "file2.tiff"]
 
     def test_multiple_inputs(self):
@@ -163,6 +166,7 @@ class TestBuildConfig:
             "filename_pattern": None,
             "no_gpu": False,
             "settings": None,
+            "crop_offset": None,
             "inputs": ["file.dng"],
         }
         defaults.update(overrides)
@@ -217,6 +221,18 @@ class TestBuildConfig:
     def test_filename_pattern(self):
         config = build_config(self._make_args(filename_pattern="{{ date }}_{{ original_name }}"))
         assert config.export.filename_pattern == "{{ date }}_{{ original_name }}"
+
+    def test_crop_offset_override(self):
+        config = build_config(self._make_args(crop_offset=10))
+        assert config.geometry.autocrop_offset == 10
+
+    def test_crop_offset_negative(self):
+        config = build_config(self._make_args(crop_offset=-3))
+        assert config.geometry.autocrop_offset == -3
+
+    def test_crop_offset_none_preserves_default(self):
+        config = build_config(self._make_args())
+        assert config.geometry.autocrop_offset == DEFAULT_WORKSPACE_CONFIG.geometry.autocrop_offset
 
     def test_none_overrides_preserve_base(self):
         config = build_config(self._make_args())

@@ -58,6 +58,7 @@ You can pass individual files, directories, or a mix of both. Directories are sc
 | `--print-size CM` | `30.0` | Print long-edge size in centimeters |
 | `--original-res` | off | Export at original sensor resolution (ignores `--dpi` and `--print-size`) |
 | `--filename-pattern TEMPLATE` | `positive_{{ original_name }}` | Jinja2 filename template (see [TEMPLATING.md](TEMPLATING.md)) |
+| `--crop-offset INT` | `1` | Autocrop border offset in pixels (-5 to 20). Positive values crop more into the image, negative values leave more border. Matches the "Crop Offset" slider in the GUI. |
 | `--no-gpu` | off | Disable GPU acceleration, use CPU only |
 | `--settings JSON_FILE` | none | Load base settings from a JSON file |
 
@@ -159,6 +160,9 @@ negpy --format jpeg --color-space srgb --output ./previews/ /path/to/scans/
 
 # Mix individual files and directories
 negpy scan_001.dng scan_002.dng /path/to/more_scans/
+
+# Tighter crop to remove film border remnants
+negpy --crop-offset 10 /path/to/scans/
 
 # CPU-only processing (no GPU)
 negpy --no-gpu /path/to/scans/

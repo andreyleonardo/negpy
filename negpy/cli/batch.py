@@ -148,6 +148,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--crop-offset",
+        type=int,
+        default=None,
+        metavar="INT",
+        help="Autocrop border offset in pixels, range -5..20 (default: 1)",
+    )
+
+    parser.add_argument(
         "--no-gpu",
         action="store_true",
         default=False,
@@ -210,6 +218,11 @@ def build_config(args: argparse.Namespace) -> WorkspaceConfig:
         lab_overrides["sharpen"] = args.sharpen
     lab = dataclasses.replace(config.lab, **lab_overrides) if lab_overrides else config.lab
 
+    geometry_overrides = {}
+    if args.crop_offset is not None:
+        geometry_overrides["autocrop_offset"] = args.crop_offset
+    geometry = dataclasses.replace(config.geometry, **geometry_overrides) if geometry_overrides else config.geometry
+
     export_overrides = {
         "export_path": os.path.abspath(args.output),
         "export_fmt": FORMAT_MAP[args.output_format],
@@ -225,7 +238,7 @@ def build_config(args: argparse.Namespace) -> WorkspaceConfig:
         export_overrides["filename_pattern"] = args.filename_pattern
     export = dataclasses.replace(config.export, **export_overrides)
 
-    return dataclasses.replace(config, process=process, exposure=exposure, lab=lab, export=export)
+    return dataclasses.replace(config, process=process, exposure=exposure, geometry=geometry, lab=lab, export=export)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
