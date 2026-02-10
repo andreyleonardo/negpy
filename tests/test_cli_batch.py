@@ -11,7 +11,11 @@ import json
 
 from unittest.mock import patch, MagicMock
 
-from negpy.cli.batch import build_parser, discover_files, build_config, main
+from negpy.cli.batch import (
+    build_parser, discover_files, build_config, main,
+    load_user_config, generate_default_config, list_available_presets,
+    CONFIG_DIR, CONFIG_FILE, PRESETS_DIR,
+)
 from negpy.domain.models import ExportFormat
 from negpy.features.process.models import ProcessMode
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
@@ -44,6 +48,9 @@ class TestBuildParser:
         assert args.settings is None
         assert args.crop_offset is None
         assert args.flat_field is None
+        assert args.preset is None
+        assert args.list_presets is False
+        assert args.init_config is False
 
     def test_all_flags(self):
         """Every flag specified."""
@@ -64,6 +71,7 @@ class TestBuildParser:
             "--settings", "my_settings.json",
             "--crop-offset", "5",
             "--flat-field", "blank_scan.tiff",
+            "--preset", "portra-400",
             "file1.dng", "file2.tiff",
         ])
         assert args.mode == "bw"
@@ -81,17 +89,32 @@ class TestBuildParser:
         assert args.settings == "my_settings.json"
         assert args.crop_offset == 5
         assert args.flat_field == "blank_scan.tiff"
+        assert args.preset == "portra-400"
         assert args.inputs == ["file1.dng", "file2.tiff"]
+
+    def test_init_config_no_inputs_required(self):
+        """--init-config should work without input files."""
+        parser = build_parser()
+        args = parser.parse_args(["--init-config"])
+        assert args.init_config is True
+        assert args.inputs == []
+
+    def test_list_presets_no_inputs_required(self):
+        """--list-presets should work without input files."""
+        parser = build_parser()
+        args = parser.parse_args(["--list-presets"])
+        assert args.list_presets is True
+        assert args.inputs == []
 
     def test_multiple_inputs(self):
         parser = build_parser()
         args = parser.parse_args(["a.dng", "b.tiff", "/scans/"])
         assert len(args.inputs) == 3
 
-    def test_no_inputs_raises(self):
-        parser = build_parser()
-        with pytest.raises(SystemExit):
-            parser.parse_args([])
+    def test_no_inputs_returns_error(self):
+        """No inputs and no special command -> exit code 1."""
+        exit_code = main([])
+        assert exit_code == 1
 
     def test_invalid_mode_raises(self):
         parser = build_parser()
@@ -170,75 +193,83 @@ class TestBuildConfig:
             "no_gpu": False,
             "settings": None,
             "crop_offset": None,
+            "preset": None,
             "inputs": ["file.dng"],
         }
         defaults.update(overrides)
         return argparse.Namespace(**defaults)
 
+    def _empty_user_config(self):
+        return {"cli": {}, "processing": {}}
+
+    def _build(self, user_config=None, **args_overrides):
+        """Helper: build_config with args overrides and optional user_config."""
+        return build_config(self._make_args(**args_overrides), user_config or self._empty_user_config())
+
     def test_defaults_preserve_workspace_config(self):
         args = self._make_args()
-        config = build_config(args)
+        config = build_config(args, {"cli": {}, "processing": {}})
         assert config.process.process_mode == ProcessMode.C41
         assert config.exposure.density == DEFAULT_WORKSPACE_CONFIG.exposure.density
         assert config.exposure.grade == DEFAULT_WORKSPACE_CONFIG.exposure.grade
         assert config.lab.sharpen == DEFAULT_WORKSPACE_CONFIG.lab.sharpen
 
     def test_mode_bw(self):
-        config = build_config(self._make_args(mode="bw"))
+        config = build_config(self._make_args(mode="bw"), {"cli": {}, "processing": {}})
         assert config.process.process_mode == ProcessMode.BW
 
     def test_mode_e6(self):
-        config = build_config(self._make_args(mode="e6"))
+        config = build_config(self._make_args(mode="e6"), {"cli": {}, "processing": {}})
         assert config.process.process_mode == ProcessMode.E6
 
     def test_exposure_overrides(self):
-        config = build_config(self._make_args(density=2.0, grade=4.0))
+        config = build_config(self._make_args(density=2.0, grade=4.0), {"cli": {}, "processing": {}})
         assert config.exposure.density == 2.0
         assert config.exposure.grade == 4.0
 
     def test_sharpen_override(self):
-        config = build_config(self._make_args(sharpen=0.8))
+        config = build_config(self._make_args(sharpen=0.8), {"cli": {}, "processing": {}})
         assert config.lab.sharpen == 0.8
 
     def test_export_format_jpeg(self):
-        config = build_config(self._make_args(output_format="jpeg"))
+        config = build_config(self._make_args(output_format="jpeg"), {"cli": {}, "processing": {}})
         assert config.export.export_fmt == ExportFormat.JPEG
 
     def test_export_format_tiff_default(self):
-        config = build_config(self._make_args())
+        config = build_config(self._make_args(), {"cli": {}, "processing": {}})
         assert config.export.export_fmt == ExportFormat.TIFF
 
     def test_color_space_prophoto(self):
-        config = build_config(self._make_args(color_space="prophoto"))
+        config = build_config(self._make_args(color_space="prophoto"), {"cli": {}, "processing": {}})
         assert config.export.export_color_space == "ProPhoto RGB"
 
     def test_dpi_and_print_size(self):
-        config = build_config(self._make_args(dpi=600, print_size=40.0))
+        config = build_config(self._make_args(dpi=600, print_size=40.0), {"cli": {}, "processing": {}})
         assert config.export.export_dpi == 600
         assert config.export.export_print_size == 40.0
 
     def test_original_res(self):
-        config = build_config(self._make_args(original_res=True))
+        config = build_config(self._make_args(original_res=True), {"cli": {}, "processing": {}})
         assert config.export.use_original_res is True
 
     def test_filename_pattern(self):
-        config = build_config(self._make_args(filename_pattern="{{ date }}_{{ original_name }}"))
+        config = build_config(self._make_args(filename_pattern="{{ date }}_{{ original_name }}"), {"cli": {}, "processing": {}})
         assert config.export.filename_pattern == "{{ date }}_{{ original_name }}"
 
     def test_crop_offset_override(self):
-        config = build_config(self._make_args(crop_offset=10))
+        config = build_config(self._make_args(crop_offset=10), {"cli": {}, "processing": {}})
         assert config.geometry.autocrop_offset == 10
 
     def test_crop_offset_negative(self):
-        config = build_config(self._make_args(crop_offset=-3))
+        config = build_config(self._make_args(crop_offset=-3), {"cli": {}, "processing": {}})
         assert config.geometry.autocrop_offset == -3
 
     def test_crop_offset_none_preserves_default(self):
-        config = build_config(self._make_args())
+        config = build_config(self._make_args(), {"cli": {}, "processing": {}})
         assert config.geometry.autocrop_offset == DEFAULT_WORKSPACE_CONFIG.geometry.autocrop_offset
 
     def test_none_overrides_preserve_base(self):
-        config = build_config(self._make_args())
+        config = build_config(self._make_args(), {"cli": {}, "processing": {}})
         assert config.exposure.density == DEFAULT_WORKSPACE_CONFIG.exposure.density
         assert config.lab.sharpen == DEFAULT_WORKSPACE_CONFIG.lab.sharpen
         assert config.export.export_dpi == DEFAULT_WORKSPACE_CONFIG.export.export_dpi
@@ -248,7 +279,7 @@ class TestBuildConfig:
         settings_file = tmp_path / "settings.json"
         settings_file.write_text(json.dumps(settings))
         args = self._make_args(settings=str(settings_file))
-        config = build_config(args)
+        config = build_config(args, {"cli": {}, "processing": {}})
         # --mode c41 still overrides the JSON process_mode
         assert config.process.process_mode == ProcessMode.C41
         # JSON values used as base
@@ -259,21 +290,21 @@ class TestBuildConfig:
         settings_file = tmp_path / "settings.json"
         settings_file.write_text(json.dumps(settings))
         args = self._make_args(settings=str(settings_file), density=2.5)
-        config = build_config(args)
+        config = build_config(args, {"cli": {}, "processing": {}})
         assert config.exposure.density == 2.5
         assert config.exposure.grade == 1.5
 
     def test_missing_settings_file_raises(self):
         args = self._make_args(settings="/nonexistent/file.json")
         with pytest.raises(FileNotFoundError):
-            build_config(args)
+            build_config(args, {"cli": {}, "processing": {}})
 
     def test_invalid_json_raises(self, tmp_path):
         bad_file = tmp_path / "bad.json"
         bad_file.write_text("not json {{{")
         args = self._make_args(settings=str(bad_file))
         with pytest.raises(json.JSONDecodeError):
-            build_config(args)
+            build_config(args, {"cli": {}, "processing": {}})
 
 
 class TestMain:
@@ -445,3 +476,158 @@ class TestMain:
 
         exit_code = main(["--flat-field", "/nonexistent/blank.tiff", "--output", str(out_dir), str(tmp_path / "a.dng")])
         assert exit_code == 1
+
+
+class TestUserConfig:
+    def test_load_user_config_missing_file(self, tmp_path, monkeypatch):
+        """When config file doesn't exist, returns empty dicts."""
+        monkeypatch.setattr("negpy.cli.batch.CONFIG_FILE", str(tmp_path / "nope.json"))
+        result = load_user_config()
+        assert result == {"cli": {}, "processing": {}}
+
+    def test_load_user_config_valid(self, tmp_path, monkeypatch):
+        """Loads cli and processing sections from config."""
+        cfg = {"cli": {"mode": "bw", "flat_field": "/flat.tiff"}, "processing": {"density": 1.5}}
+        cfg_file = tmp_path / "config.json"
+        cfg_file.write_text(json.dumps(cfg))
+        monkeypatch.setattr("negpy.cli.batch.CONFIG_FILE", str(cfg_file))
+        result = load_user_config()
+        assert result["cli"]["mode"] == "bw"
+        assert result["cli"]["flat_field"] == "/flat.tiff"
+        assert result["processing"]["density"] == 1.5
+
+    def test_generate_default_config_creates_file(self, tmp_path, monkeypatch):
+        """--init-config creates config.json and presets dir."""
+        monkeypatch.setattr("negpy.cli.batch.CONFIG_DIR", str(tmp_path / ".negpy"))
+        monkeypatch.setattr("negpy.cli.batch.CONFIG_FILE", str(tmp_path / ".negpy" / "config.json"))
+        monkeypatch.setattr("negpy.cli.batch.PRESETS_DIR", str(tmp_path / ".negpy" / "presets"))
+        code = generate_default_config()
+        assert code == 0
+        assert (tmp_path / ".negpy" / "config.json").exists()
+        assert (tmp_path / ".negpy" / "presets").is_dir()
+        data = json.loads((tmp_path / ".negpy" / "config.json").read_text())
+        assert "cli" in data
+        assert "processing" in data
+
+    def test_generate_default_config_refuses_overwrite(self, tmp_path, monkeypatch):
+        """--init-config refuses to overwrite existing config."""
+        negpy_dir = tmp_path / ".negpy"
+        negpy_dir.mkdir()
+        (negpy_dir / "config.json").write_text("{}")
+        monkeypatch.setattr("negpy.cli.batch.CONFIG_DIR", str(negpy_dir))
+        monkeypatch.setattr("negpy.cli.batch.CONFIG_FILE", str(negpy_dir / "config.json"))
+        monkeypatch.setattr("negpy.cli.batch.PRESETS_DIR", str(negpy_dir / "presets"))
+        code = generate_default_config()
+        assert code == 1
+
+
+class TestPresets:
+    def test_list_presets_empty(self, tmp_path, monkeypatch):
+        """No presets dir -> informational message, exit 0."""
+        monkeypatch.setattr("negpy.cli.batch.PRESETS_DIR", str(tmp_path / "nonexistent"))
+        code = list_available_presets()
+        assert code == 0
+
+    def test_list_presets_with_files(self, tmp_path, monkeypatch, capsys):
+        """Lists preset names from presets dir."""
+        presets_dir = tmp_path / "presets"
+        presets_dir.mkdir()
+        (presets_dir / "portra-400.json").write_text('{"density": 1.2}')
+        (presets_dir / "tri-x.json").write_text('{"density": 0.9}')
+        (presets_dir / "not-json.txt").write_text("skip me")
+        monkeypatch.setattr("negpy.cli.batch.PRESETS_DIR", str(presets_dir))
+        code = list_available_presets()
+        assert code == 0
+        captured = capsys.readouterr()
+        assert "portra-400" in captured.err
+        assert "tri-x" in captured.err
+        assert "not-json" not in captured.err
+
+
+class TestBuildConfigPriority:
+    """Tests for the config loading priority chain."""
+
+    def _make_args(self, **overrides):
+        defaults = {
+            "mode": "c41",
+            "output_format": "tiff",
+            "output": "./export",
+            "color_space": "adobe-rgb",
+            "density": None,
+            "grade": None,
+            "sharpen": None,
+            "dpi": None,
+            "print_size": None,
+            "original_res": False,
+            "filename_pattern": None,
+            "no_gpu": False,
+            "settings": None,
+            "crop_offset": None,
+            "preset": None,
+            "inputs": ["file.dng"],
+        }
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_user_config_processing_applied(self):
+        """User config processing values should be used as base."""
+        user_config = {"cli": {}, "processing": {"density": 1.5, "grade": 3.0}}
+        config = build_config(self._make_args(), user_config)
+        assert config.exposure.density == 1.5
+        assert config.exposure.grade == 3.0
+
+    def test_cli_flag_overrides_user_config(self):
+        """CLI flag should override user config value."""
+        user_config = {"cli": {}, "processing": {"density": 1.5}}
+        config = build_config(self._make_args(density=3.0), user_config)
+        assert config.exposure.density == 3.0
+
+    def test_preset_overrides_user_config(self, tmp_path, monkeypatch):
+        """Preset should override user config processing values."""
+        presets_dir = tmp_path / "presets"
+        presets_dir.mkdir()
+        (presets_dir / "test-preset.json").write_text(json.dumps({"density": 2.0, "grade": 4.0}))
+        monkeypatch.setattr("negpy.cli.batch.PRESETS_DIR", str(presets_dir))
+
+        user_config = {"cli": {}, "processing": {"density": 1.5, "grade": 1.0}}
+        config = build_config(self._make_args(preset="test-preset"), user_config)
+        assert config.exposure.density == 2.0
+        assert config.exposure.grade == 4.0
+
+    def test_cli_flag_overrides_preset(self, tmp_path, monkeypatch):
+        """CLI flag should win over preset value."""
+        presets_dir = tmp_path / "presets"
+        presets_dir.mkdir()
+        (presets_dir / "test-preset.json").write_text(json.dumps({"density": 2.0}))
+        monkeypatch.setattr("negpy.cli.batch.PRESETS_DIR", str(presets_dir))
+
+        user_config = {"cli": {}, "processing": {}}
+        config = build_config(self._make_args(preset="test-preset", density=5.0), user_config)
+        assert config.exposure.density == 5.0
+
+    def test_settings_overrides_preset(self, tmp_path, monkeypatch):
+        """--settings file should override preset values."""
+        presets_dir = tmp_path / "presets"
+        presets_dir.mkdir()
+        (presets_dir / "test-preset.json").write_text(json.dumps({"density": 2.0}))
+        monkeypatch.setattr("negpy.cli.batch.PRESETS_DIR", str(presets_dir))
+
+        settings_file = tmp_path / "settings.json"
+        settings_file.write_text(json.dumps({"density": 9.0, "grade": 8.0}))
+
+        user_config = {"cli": {}, "processing": {}}
+        config = build_config(
+            self._make_args(preset="test-preset", settings=str(settings_file)),
+            user_config,
+        )
+        assert config.exposure.density == 9.0
+
+    def test_missing_preset_raises(self, tmp_path, monkeypatch):
+        """Unknown preset name should raise FileNotFoundError."""
+        presets_dir = tmp_path / "presets"
+        presets_dir.mkdir()
+        monkeypatch.setattr("negpy.cli.batch.PRESETS_DIR", str(presets_dir))
+
+        user_config = {"cli": {}, "processing": {}}
+        with pytest.raises(FileNotFoundError):
+            build_config(self._make_args(preset="nonexistent"), user_config)

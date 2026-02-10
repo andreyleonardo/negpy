@@ -50,6 +50,73 @@ MODE_CHOICES = tuple(MODE_MAP.keys())
 FORMAT_CHOICES = tuple(FORMAT_MAP.keys())
 COLOR_SPACE_CHOICES = tuple(COLOR_SPACE_MAP.keys())
 
+CONFIG_DIR = os.path.expanduser("~/.negpy")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+PRESETS_DIR = os.path.join(CONFIG_DIR, "presets")
+
+
+def load_user_config() -> dict:
+    """Loads ~/.negpy/config.json if it exists. Returns {"cli": {}, "processing": {}}."""
+    if not os.path.isfile(CONFIG_FILE):
+        return {"cli": {}, "processing": {}}
+    with open(CONFIG_FILE, "r") as f:
+        data = json.load(f)
+    return {
+        "cli": data.get("cli", {}),
+        "processing": data.get("processing", {}),
+    }
+
+
+def generate_default_config() -> int:
+    """Creates ~/.negpy/config.json with documented defaults. Returns 0 on success, 1 if exists."""
+    if os.path.isfile(CONFIG_FILE):
+        print(f"Config already exists: {CONFIG_FILE}", file=sys.stderr)
+        return 1
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    os.makedirs(PRESETS_DIR, exist_ok=True)
+    default = {
+        "cli": {
+            "flat_field": None,
+            "output": "./export",
+            "mode": "c41",
+            "format": "tiff",
+            "color_space": "adobe-rgb",
+            "no_gpu": False,
+            "crop_offset": None,
+            "filename_pattern": "positive_{{ original_name }}",
+        },
+        "processing": {
+            "density": 1.0,
+            "grade": 2.0,
+            "wb_cyan": 0.0,
+            "wb_magenta": 0.0,
+            "wb_yellow": 0.0,
+            "sharpen": 0.25,
+            "color_separation": 1.0,
+            "saturation": 1.0,
+        },
+    }
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(default, f, indent=4)
+    print(f"Config created: {CONFIG_FILE}", file=sys.stderr)
+    print(f"Presets directory: {PRESETS_DIR}", file=sys.stderr)
+    return 0
+
+
+def list_available_presets() -> int:
+    """Lists preset files from ~/.negpy/presets/ and exits."""
+    if not os.path.isdir(PRESETS_DIR):
+        print("No presets directory found. Run 'negpy --init-config' to create it.", file=sys.stderr)
+        return 0
+    presets = sorted(f[:-5] for f in os.listdir(PRESETS_DIR) if f.endswith(".json"))
+    if not presets:
+        print("No presets found. Place .json files in ~/.negpy/presets/", file=sys.stderr)
+    else:
+        print("Available presets:", file=sys.stderr)
+        for name in presets:
+            print(f"  {name}", file=sys.stderr)
+    return 0
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -60,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "inputs",
-        nargs="+",
+        nargs="*",
         metavar="FILE_OR_DIR",
         help="Input files or directories containing film negatives",
     )
@@ -177,6 +244,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Load full WorkspaceConfig from a JSON settings file",
     )
 
+    parser.add_argument(
+        "--preset",
+        default=None,
+        metavar="NAME",
+        help="Load a film preset by name (e.g. portra-400)",
+    )
+
+    parser.add_argument(
+        "--list-presets",
+        action="store_true",
+        default=False,
+        help="List available presets and exit",
+    )
+
+    parser.add_argument(
+        "--init-config",
+        action="store_true",
+        default=False,
+        help="Generate default config at ~/.negpy/config.json and exit",
+    )
+
     return parser
 
 
@@ -203,15 +291,37 @@ def discover_files(inputs: List[str]) -> List[str]:
     return files
 
 
-def build_config(args: argparse.Namespace) -> WorkspaceConfig:
-    """Builds WorkspaceConfig from base defaults (or --settings JSON) + CLI overrides."""
+def build_config(args: argparse.Namespace, user_config: dict) -> WorkspaceConfig:
+    """Builds WorkspaceConfig with loading priority:
+    DEFAULT → user config → preset → --settings → CLI flags
+    """
+    # Layer 1: defaults as flat dict
+    base_dict = DEFAULT_WORKSPACE_CONFIG.to_dict()
+
+    # Layer 2: user config processing overrides
+    processing = user_config.get("processing", {})
+    if processing:
+        base_dict.update(processing)
+
+    # Layer 3: preset overrides
+    if getattr(args, "preset", None):
+        preset_path = os.path.join(PRESETS_DIR, f"{args.preset}.json")
+        if not os.path.isfile(preset_path):
+            raise FileNotFoundError(f"Preset not found: {preset_path}")
+        with open(preset_path, "r") as f:
+            preset_data = json.load(f)
+        base_dict.update(preset_data)
+
+    # Layer 4: --settings file overrides
     if args.settings:
         with open(os.path.abspath(args.settings), "r") as f:
-            data = json.load(f)
-        config = WorkspaceConfig.from_flat_dict(data)
-    else:
-        config = DEFAULT_WORKSPACE_CONFIG
+            settings_data = json.load(f)
+        base_dict.update(settings_data)
 
+    # Build workspace config from merged flat dict
+    config = WorkspaceConfig.from_flat_dict(base_dict)
+
+    # Layer 5: CLI flags always win
     process = dataclasses.replace(config.process, process_mode=MODE_MAP[args.mode])
 
     exposure_overrides = {}
@@ -279,8 +389,26 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    # Handle early-exit commands
+    if args.init_config:
+        return generate_default_config()
+    if args.list_presets:
+        return list_available_presets()
+
     if args.no_gpu:
         APP_CONFIG.use_gpu = False
+
+    # Load user config
+    user_config = load_user_config()
+
+    # Apply CLI defaults from user config (only where arg was not explicitly set)
+    cli_defaults = user_config.get("cli", {})
+    if args.flat_field is None and cli_defaults.get("flat_field"):
+        args.flat_field = cli_defaults["flat_field"]
+    if args.output == "./export" and "output" in cli_defaults:
+        args.output = cli_defaults["output"]
+    if args.crop_offset is None and cli_defaults.get("crop_offset") is not None:
+        args.crop_offset = cli_defaults["crop_offset"]
 
     files = discover_files(args.inputs)
     if not files:
@@ -288,7 +416,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
 
     try:
-        config = build_config(args)
+        config = build_config(args, user_config)
     except (json.JSONDecodeError, FileNotFoundError, KeyError, TypeError) as e:
         print(f"Error loading settings: {e}", file=sys.stderr)
         return 1
