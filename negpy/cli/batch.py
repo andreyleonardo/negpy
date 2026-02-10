@@ -14,11 +14,13 @@ import json
 import time
 from typing import List, Optional
 
-from negpy.domain.models import WorkspaceConfig, ExportFormat, ColorSpace
+import numpy as np
+
+from negpy.domain.models import WorkspaceConfig, ExportConfig, ExportFormat, ColorSpace
 from negpy.features.flatfield.logic import load_flatfield, load_raw_to_float32, apply_flatfield
 from negpy.features.process.models import ProcessMode
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
-from negpy.kernel.image.logic import calculate_file_hash, float_to_uint16, float_to_uint8, float_to_uint_luma
+from negpy.kernel.image.logic import calculate_file_hash, float_to_uint16, float_to_uint8
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG, APP_CONFIG
 from negpy.services.export.templating import render_export_filename
 from negpy.services.rendering.image_processor import ImageProcessor
@@ -364,7 +366,7 @@ def build_config(args: argparse.Namespace, user_config: dict) -> WorkspaceConfig
     return dataclasses.replace(config, process=process, exposure=exposure, geometry=geometry, lab=lab, export=export)
 
 
-def encode_export(buffer, export_settings) -> bytes:
+def encode_export(buffer: np.ndarray, export_settings: ExportConfig) -> bytes:
     """Encodes a float32 buffer to TIFF or JPEG bytes."""
     import io
     import tifffile
@@ -471,23 +473,23 @@ def main(argv: Optional[List[str]] = None) -> int:
                     render_size_ref=float(APP_CONFIG.preview_render_size),
                     prefer_gpu=use_gpu,
                 )
-                import numpy as np
                 if not isinstance(result_buffer, np.ndarray):
-                    result_buffer = processor.engine_gpu.readback(result_buffer)
+                    result_buffer = result_buffer.readback()[:, :, :3]
                 bits = encode_export(result_buffer, export_settings)
             else:
                 # Standard path
-                bits, fmt_or_error = processor.process_export(
+                result, fmt_or_error = processor.process_export(
                     file_path,
                     config,
                     export_settings,
                     source_hash,
                     prefer_gpu=use_gpu,
                 )
-                if bits is None:
+                if result is None:
                     print(f" FAILED ({fmt_or_error})", file=sys.stderr)
                     failed += 1
                     continue
+                bits = result
 
             ext = "jpg" if export_settings.export_fmt == ExportFormat.JPEG else "tiff"
             filename = render_export_filename(file_path, export_settings)
