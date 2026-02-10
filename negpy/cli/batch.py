@@ -14,11 +14,12 @@ import json
 import time
 from typing import List, Optional
 
-from negpy.domain.models import WorkspaceConfig, ExportFormat, ColorSpace
+import numpy as np
+from negpy.domain.models import WorkspaceConfig, ExportConfig, ExportFormat, ColorSpace
 from negpy.features.flatfield.logic import load_flatfield, load_raw_to_float32, apply_flatfield
 from negpy.features.process.models import ProcessMode
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
-from negpy.kernel.image.logic import calculate_file_hash, float_to_uint16, float_to_uint8, float_to_uint_luma
+from negpy.kernel.image.logic import calculate_file_hash, float_to_uint16, float_to_uint8
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG, APP_CONFIG
 from negpy.services.export.templating import render_export_filename
 from negpy.services.rendering.image_processor import ImageProcessor
@@ -364,7 +365,7 @@ def build_config(args: argparse.Namespace, user_config: dict) -> WorkspaceConfig
     return dataclasses.replace(config, process=process, exposure=exposure, geometry=geometry, lab=lab, export=export)
 
 
-def encode_export(buffer, export_settings) -> bytes:
+def encode_export(buffer: np.ndarray, export_settings: ExportConfig) -> bytes:
     """Encodes a float32 buffer to TIFF or JPEG bytes."""
     import io
     import tifffile
@@ -460,6 +461,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         try:
             source_hash = calculate_file_hash(file_path)
 
+            bits: Optional[bytes] = None
             if flatfield_map is not None:
                 # Flat-field path: load raw, correct, then run pipeline
                 f32_buffer = load_raw_to_float32(file_path)
@@ -471,9 +473,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                     render_size_ref=float(APP_CONFIG.preview_render_size),
                     prefer_gpu=use_gpu,
                 )
-                import numpy as np
                 if not isinstance(result_buffer, np.ndarray):
-                    result_buffer = processor.engine_gpu.readback(result_buffer)
+                    result_buffer = result_buffer.readback()
                 bits = encode_export(result_buffer, export_settings)
             else:
                 # Standard path

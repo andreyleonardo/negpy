@@ -14,8 +14,7 @@ from unittest.mock import patch, MagicMock
 from negpy.cli.batch import (
     build_parser, discover_files, build_config, main,
     load_user_config, generate_default_config, list_available_presets,
-    CONFIG_DIR, CONFIG_FILE, PRESETS_DIR,
-    CONFIG_SCHEMA_URL, PRESET_SCHEMA_URL,
+    CONFIG_SCHEMA_URL,
 )
 from negpy.domain.models import ExportFormat
 from negpy.features.process.models import ProcessMode
