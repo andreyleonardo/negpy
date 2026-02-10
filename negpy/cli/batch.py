@@ -15,9 +15,10 @@ import time
 from typing import List, Optional
 
 from negpy.domain.models import WorkspaceConfig, ExportFormat, ColorSpace
+from negpy.features.flatfield.logic import load_flatfield, load_raw_to_float32, apply_flatfield
 from negpy.features.process.models import ProcessMode
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
-from negpy.kernel.image.logic import calculate_file_hash
+from negpy.kernel.image.logic import calculate_file_hash, float_to_uint16, float_to_uint8, float_to_uint_luma
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG, APP_CONFIG
 from negpy.services.export.templating import render_export_filename
 from negpy.services.rendering.image_processor import ImageProcessor
@@ -156,6 +157,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--flat-field",
+        default=None,
+        metavar="FILE",
+        help="Path to a flat-field reference frame (blank scan) for vignetting correction",
+    )
+
+    parser.add_argument(
         "--no-gpu",
         action="store_true",
         default=False,
@@ -241,6 +249,31 @@ def build_config(args: argparse.Namespace) -> WorkspaceConfig:
     return dataclasses.replace(config, process=process, exposure=exposure, geometry=geometry, lab=lab, export=export)
 
 
+def encode_export(buffer, export_settings) -> bytes:
+    """Encodes a float32 buffer to TIFF or JPEG bytes."""
+    import io
+    import tifffile
+
+    is_tiff = export_settings.export_fmt != ExportFormat.JPEG
+    if is_tiff:
+        img_int = float_to_uint16(buffer)
+        output_buf = io.BytesIO()
+        tifffile.imwrite(
+            output_buf,
+            img_int,
+            photometric="rgb" if img_int.ndim == 3 else "minisblack",
+            compression="lzw",
+        )
+        return output_buf.getvalue()
+    else:
+        from PIL import Image
+        img_int = float_to_uint8(buffer)
+        pil_img = Image.fromarray(img_int)
+        output_buf = io.BytesIO()
+        pil_img.save(output_buf, format="JPEG", quality=95)
+        return output_buf.getvalue()
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """CLI entry point. Returns 0 on success, 1 on failure."""
     parser = build_parser()
@@ -265,6 +298,20 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     os.makedirs(export_settings.export_path, exist_ok=True)
 
+    # Load flat-field reference if provided
+    flatfield_map = None
+    if args.flat_field:
+        ff_path = os.path.abspath(args.flat_field)
+        if not os.path.isfile(ff_path):
+            print(f"Error: Flat-field file not found: {ff_path}", file=sys.stderr)
+            return 1
+        try:
+            flatfield_map = load_flatfield(ff_path)
+            print(f"Flat-field loaded: {ff_path}", file=sys.stderr)
+        except Exception as e:
+            print(f"Error loading flat-field: {e}", file=sys.stderr)
+            return 1
+
     processor = ImageProcessor()
 
     total = len(files)
@@ -280,18 +327,34 @@ def main(argv: Optional[List[str]] = None) -> int:
         try:
             source_hash = calculate_file_hash(file_path)
 
-            bits, fmt_or_error = processor.process_export(
-                file_path,
-                config,
-                export_settings,
-                source_hash,
-                prefer_gpu=use_gpu,
-            )
-
-            if bits is None:
-                print(f" FAILED ({fmt_or_error})", file=sys.stderr)
-                failed += 1
-                continue
+            if flatfield_map is not None:
+                # Flat-field path: load raw, correct, then run pipeline
+                f32_buffer = load_raw_to_float32(file_path)
+                f32_corrected = apply_flatfield(f32_buffer, flatfield_map)
+                result_buffer, _metrics = processor.run_pipeline(
+                    f32_corrected,
+                    config,
+                    source_hash,
+                    render_size_ref=float(APP_CONFIG.preview_render_size),
+                    prefer_gpu=use_gpu,
+                )
+                import numpy as np
+                if not isinstance(result_buffer, np.ndarray):
+                    result_buffer = processor.engine_gpu.readback(result_buffer)
+                bits = encode_export(result_buffer, export_settings)
+            else:
+                # Standard path
+                bits, fmt_or_error = processor.process_export(
+                    file_path,
+                    config,
+                    export_settings,
+                    source_hash,
+                    prefer_gpu=use_gpu,
+                )
+                if bits is None:
+                    print(f" FAILED ({fmt_or_error})", file=sys.stderr)
+                    failed += 1
+                    continue
 
             ext = "jpg" if export_settings.export_fmt == ExportFormat.JPEG else "tiff"
             filename = render_export_filename(file_path, export_settings)

@@ -43,6 +43,7 @@ class TestBuildParser:
         assert args.no_gpu is False
         assert args.settings is None
         assert args.crop_offset is None
+        assert args.flat_field is None
 
     def test_all_flags(self):
         """Every flag specified."""
@@ -62,6 +63,7 @@ class TestBuildParser:
             "--no-gpu",
             "--settings", "my_settings.json",
             "--crop-offset", "5",
+            "--flat-field", "blank_scan.tiff",
             "file1.dng", "file2.tiff",
         ])
         assert args.mode == "bw"
@@ -78,6 +80,7 @@ class TestBuildParser:
         assert args.no_gpu is True
         assert args.settings == "my_settings.json"
         assert args.crop_offset == 5
+        assert args.flat_field == "blank_scan.tiff"
         assert args.inputs == ["file1.dng", "file2.tiff"]
 
     def test_multiple_inputs(self):
@@ -398,3 +401,47 @@ class TestMain:
         exit_code = main(["--output", str(out_dir), str(tmp_path)])
         assert exit_code == 0
         assert mock_processor.process_export.call_count == 2
+
+    @patch("negpy.cli.batch.ImageProcessor")
+    @patch("negpy.cli.batch.load_raw_to_float32")
+    @patch("negpy.cli.batch.load_flatfield")
+    @patch("negpy.cli.batch.apply_flatfield")
+    def test_flat_field_loads_and_applies(self, mock_apply, mock_load_ff, mock_load_raw, mock_proc_cls, tmp_path):
+        """--flat-field should load the flat, load each raw, apply correction, and use run_pipeline."""
+        (tmp_path / "a.dng").write_bytes(b"fake")
+        out_dir = tmp_path / "output"
+        ff_file = tmp_path / "blank.tiff"
+        ff_file.write_bytes(b"flat")
+
+        import numpy as np
+        fake_flat = np.ones((100, 100, 3), dtype=np.float32)
+        fake_raw = np.ones((100, 100, 3), dtype=np.float32) * 0.5
+        fake_corrected = np.ones((100, 100, 3), dtype=np.float32) * 0.5
+        fake_result = np.ones((50, 50, 3), dtype=np.float32) * 0.7
+
+        mock_load_ff.return_value = fake_flat
+        mock_load_raw.return_value = fake_raw
+        mock_apply.return_value = fake_corrected
+
+        mock_processor = MagicMock()
+        mock_processor.run_pipeline.return_value = (fake_result, {})
+        mock_proc_cls.return_value = mock_processor
+
+        exit_code = main(["--flat-field", str(ff_file), "--output", str(out_dir), str(tmp_path / "a.dng")])
+
+        assert exit_code == 0
+        mock_load_ff.assert_called_once_with(str(ff_file))
+        mock_load_raw.assert_called_once()
+        mock_apply.assert_called_once()
+        mock_processor.run_pipeline.assert_called_once()
+        # process_export should NOT be called when --flat-field is used
+        mock_processor.process_export.assert_not_called()
+
+    @patch("negpy.cli.batch.ImageProcessor")
+    def test_flat_field_missing_file_returns_1(self, mock_proc_cls, tmp_path):
+        """Non-existent flat-field path should return exit code 1."""
+        (tmp_path / "a.dng").write_bytes(b"fake")
+        out_dir = tmp_path / "output"
+
+        exit_code = main(["--flat-field", "/nonexistent/blank.tiff", "--output", str(out_dir), str(tmp_path / "a.dng")])
+        assert exit_code == 1

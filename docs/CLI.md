@@ -59,6 +59,7 @@ You can pass individual files, directories, or a mix of both. Directories are sc
 | `--original-res` | off | Export at original sensor resolution (ignores `--dpi` and `--print-size`) |
 | `--filename-pattern TEMPLATE` | `positive_{{ original_name }}` | Jinja2 filename template (see [TEMPLATING.md](TEMPLATING.md)) |
 | `--crop-offset INT` | `1` | Autocrop border offset in pixels (-5 to 20). Positive values crop more into the image, negative values leave more border. Matches the "Crop Offset" slider in the GUI. |
+| `--flat-field FILE` | none | Path to a flat-field reference frame (blank scan) for vignetting / uneven backlight correction |
 | `--no-gpu` | off | Disable GPU acceleration, use CPU only |
 | `--settings JSON_FILE` | none | Load base settings from a JSON file |
 
@@ -140,6 +141,29 @@ Done: 11/12 succeeded in 25.4s
 | `0` | All files processed successfully |
 | `1` | One or more files failed, or no supported files found |
 
+## Flat-Field Correction
+
+If your scanner produces uneven illumination (bright center, dim edges, or light leaking on the sides), you can correct it by providing a flat-field reference frame with `--flat-field`.
+
+### How to create a flat-field reference
+
+1. Scan an empty film holder or a piece of unexposed (clear) film using your usual scanning settings (same resolution, same exposure)
+2. Save the scan as TIFF (recommended) or any format NegPy supports
+
+The flat-field frame captures your scanner's backlight profile. NegPy normalizes it and divides each scan by it, compensating for the uneven illumination. The correction happens in linear space before any tone mapping, so it preserves the full dynamic range.
+
+### Usage
+
+```bash
+# Correct vignetting for a whole batch
+negpy --flat-field blank_scan.tiff /path/to/scans/
+
+# Combine with other flags
+negpy --flat-field blank.tiff --mode bw --grade 3.0 --output ./prints/ /path/to/scans/
+```
+
+The flat-field frame is loaded once and applied to every file in the batch. If the flat-field and scan have different resolutions, the flat-field is resized to match each scan automatically.
+
 ## Examples
 
 ```bash
@@ -163,6 +187,9 @@ negpy scan_001.dng scan_002.dng /path/to/more_scans/
 
 # Tighter crop to remove film border remnants
 negpy --crop-offset 10 /path/to/scans/
+
+# Correct scanner vignetting with a flat-field reference
+negpy --flat-field blank_scan.tiff /path/to/scans/
 
 # CPU-only processing (no GPU)
 negpy --no-gpu /path/to/scans/
