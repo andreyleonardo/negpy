@@ -160,10 +160,12 @@ def analyze_roll(
 
     total = len(files)
     print(f"Roll normalization: analyzing {total} file(s) ...", file=sys.stderr)
+    t_start = time.monotonic()
 
     for i, file_path in enumerate(files, 1):
         name = os.path.splitext(os.path.basename(file_path))[0]
         print(f"  [{i}/{total}] {name} ...", file=sys.stderr, end="", flush=True)
+        t_file = time.monotonic()
 
         f32 = load_raw_to_float32(file_path)
         if flatfield_map is not None:
@@ -177,18 +179,22 @@ def analyze_roll(
         )
         all_floors.append(bounds.floors)
         all_ceils.append(bounds.ceils)
-        print(" OK", file=sys.stderr)
+
+        elapsed = time.monotonic() - t_file
+        print(f" OK ({elapsed:.1f}s)", file=sys.stderr)
 
     floors_arr = np.array(all_floors)
     ceils_arr = np.array(all_ceils)
     avg_floors = _robust_mean(floors_arr)
     avg_ceils = _robust_mean(ceils_arr)
 
+    total_time = time.monotonic() - t_start
     print(
         f"  Floors: ({avg_floors[0]:.4f}, {avg_floors[1]:.4f}, {avg_floors[2]:.4f})"
         f"  Ceils: ({avg_ceils[0]:.4f}, {avg_ceils[1]:.4f}, {avg_ceils[2]:.4f})",
         file=sys.stderr,
     )
+    print(f"Roll analysis complete in {total_time:.1f}s", file=sys.stderr)
 
     return (
         (avg_floors[0], avg_floors[1], avg_floors[2]),
@@ -280,10 +286,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--original-res",
+        "--preview",
         action="store_true",
         default=False,
-        help="Export at original sensor resolution (ignores --dpi and --print-size)",
+        help="Render at preview resolution (~2000px) for fast experimentation",
     )
 
     parser.add_argument(
@@ -435,8 +441,6 @@ def build_config(args: argparse.Namespace, user_config: dict) -> WorkspaceConfig
         export_overrides["export_dpi"] = args.dpi
     if args.print_size is not None:
         export_overrides["export_print_size"] = args.print_size
-    if args.original_res:
-        export_overrides["use_original_res"] = True
     if args.filename_pattern is not None:
         export_overrides["filename_pattern"] = args.filename_pattern
     export = dataclasses.replace(config.export, **export_overrides)
@@ -561,18 +565,40 @@ def main(argv: Optional[List[str]] = None) -> int:
 
             bits: Optional[bytes] = None
             if flatfield_map is not None:
-                # Flat-field path: load raw, correct, then run pipeline
+                # Flat-field path: load raw, correct, then process
                 f32_buffer = load_raw_to_float32(file_path)
                 f32_corrected = apply_flatfield(f32_buffer, flatfield_map)
-                result_buffer, _metrics = processor.run_pipeline(
-                    f32_corrected,
-                    config,
-                    source_hash,
-                    render_size_ref=float(APP_CONFIG.preview_render_size),
-                    prefer_gpu=use_gpu,
-                )
-                if not isinstance(result_buffer, np.ndarray):
-                    result_buffer = result_buffer.readback()[:, :, :3]
+                h_orig, w_orig = f32_corrected.shape[:2]
+                export_scale = max(h_orig, w_orig) / float(APP_CONFIG.preview_render_size)
+
+                if args.preview:
+                    # Preview mode: use run_pipeline with preview size for ~2000px output
+                    result_buffer, _metrics = processor.run_pipeline(
+                        f32_corrected,
+                        config,
+                        source_hash,
+                        render_size_ref=float(APP_CONFIG.preview_render_size),
+                        prefer_gpu=use_gpu,
+                    )
+                    if not isinstance(result_buffer, np.ndarray):
+                        result_buffer = result_buffer.readback()[:, :, :3]
+                elif use_gpu and processor.engine_gpu:
+                    # GPU path: use engine_gpu.process() which doesn't pass render_size_ref,
+                    # so output uses standard DPI-based sizing (matches process_export)
+                    result_buffer, _metrics = processor.engine_gpu.process(
+                        f32_corrected, config, scale_factor=export_scale
+                    )
+                else:
+                    # CPU fallback
+                    result_buffer, _metrics = processor.run_pipeline(
+                        f32_corrected,
+                        config,
+                        source_hash,
+                        render_size_ref=float(APP_CONFIG.preview_render_size),
+                        prefer_gpu=False,
+                    )
+                    if not isinstance(result_buffer, np.ndarray):
+                        result_buffer = result_buffer.readback()[:, :, :3]
                 bits = encode_export(result_buffer, export_settings)
             else:
                 # Standard path
