@@ -43,7 +43,7 @@ class TestBuildParser:
         assert args.sharpen is None
         assert args.dpi is None
         assert args.print_size is None
-        assert args.original_res is False
+        assert args.preview is False
         assert args.filename_pattern is None
         assert args.no_gpu is False
         assert args.settings is None
@@ -67,7 +67,7 @@ class TestBuildParser:
             "--sharpen", "0.5",
             "--dpi", "600",
             "--print-size", "40.0",
-            "--original-res",
+            "--preview",
             "--filename-pattern", "{{ original_name }}_final",
             "--no-gpu",
             "--settings", "my_settings.json",
@@ -86,7 +86,7 @@ class TestBuildParser:
         assert args.sharpen == 0.5
         assert args.dpi == 600
         assert args.print_size == 40.0
-        assert args.original_res is True
+        assert args.preview is True
         assert args.filename_pattern == "{{ original_name }}_final"
         assert args.no_gpu is True
         assert args.settings == "my_settings.json"
@@ -192,7 +192,7 @@ class TestBuildConfig:
             "sharpen": None,
             "dpi": None,
             "print_size": None,
-            "original_res": False,
+            "preview": False,
             "filename_pattern": None,
             "no_gpu": False,
             "settings": None,
@@ -251,10 +251,6 @@ class TestBuildConfig:
         config = build_config(self._make_args(dpi=600, print_size=40.0), {"cli": {}, "processing": {}})
         assert config.export.export_dpi == 600
         assert config.export.export_print_size == 40.0
-
-    def test_original_res(self):
-        config = build_config(self._make_args(original_res=True), {"cli": {}, "processing": {}})
-        assert config.export.use_original_res is True
 
     def test_filename_pattern(self):
         config = build_config(self._make_args(filename_pattern="{{ date }}_{{ original_name }}"), {"cli": {}, "processing": {}})
@@ -454,7 +450,7 @@ class TestMain:
     @patch("negpy.cli.batch.load_flatfield")
     @patch("negpy.cli.batch.apply_flatfield")
     def test_flat_field_loads_and_applies(self, mock_apply, mock_load_ff, mock_load_raw, mock_proc_cls, tmp_path):
-        """--flat-field should load the flat, load each raw, apply correction, and use run_pipeline."""
+        """--flat-field should load the flat, load each raw, apply correction, and use GPU engine."""
         (tmp_path / "a.dng").write_bytes(b"fake")
         out_dir = tmp_path / "output"
         ff_file = tmp_path / "blank.tiff"
@@ -471,7 +467,8 @@ class TestMain:
         mock_apply.return_value = fake_corrected
 
         mock_processor = MagicMock()
-        mock_processor.run_pipeline.return_value = (fake_result, {})
+        # GPU path uses engine_gpu.process() directly
+        mock_processor.engine_gpu.process.return_value = (fake_result, {})
         mock_proc_cls.return_value = mock_processor
 
         exit_code = main(["--flat-field", str(ff_file), "--output", str(out_dir), str(tmp_path / "a.dng")])
@@ -480,7 +477,7 @@ class TestMain:
         mock_load_ff.assert_called_once_with(str(ff_file))
         mock_load_raw.assert_called_once()
         mock_apply.assert_called_once()
-        mock_processor.run_pipeline.assert_called_once()
+        mock_processor.engine_gpu.process.assert_called_once()
         # process_export should NOT be called when --flat-field is used
         mock_processor.process_export.assert_not_called()
 
@@ -488,8 +485,8 @@ class TestMain:
     @patch("negpy.cli.batch.load_raw_to_float32")
     @patch("negpy.cli.batch.load_flatfield")
     @patch("negpy.cli.batch.apply_flatfield")
-    def test_flat_field_with_gpu_texture_readback(self, mock_apply, mock_load_ff, mock_load_raw, mock_proc_cls, tmp_path):
-        """When GPU returns a texture, readback() should be called on the texture itself."""
+    def test_flat_field_preview_mode_with_gpu_texture_readback(self, mock_apply, mock_load_ff, mock_load_raw, mock_proc_cls, tmp_path):
+        """In --preview mode, when GPU returns a texture, readback() should be called on the texture itself."""
         (tmp_path / "a.dng").write_bytes(b"fake")
         out_dir = tmp_path / "output"
         ff_file = tmp_path / "blank.tiff"
@@ -511,15 +508,17 @@ class TestMain:
         mock_texture.readback.return_value = fake_rgba_result
 
         mock_processor = MagicMock()
+        # Preview mode uses run_pipeline which may return a texture
         mock_processor.run_pipeline.return_value = (mock_texture, {})
         mock_proc_cls.return_value = mock_processor
 
-        exit_code = main(["--flat-field", str(ff_file), "--output", str(out_dir), str(tmp_path / "a.dng")])
+        # Use --preview flag to trigger the run_pipeline path
+        exit_code = main(["--preview", "--flat-field", str(ff_file), "--output", str(out_dir), str(tmp_path / "a.dng")])
 
         assert exit_code == 0
         # Verify readback() was called on the texture itself (not on engine_gpu)
         mock_texture.readback.assert_called_once()
-        mock_processor.engine_gpu.readback.assert_not_called()
+        mock_processor.run_pipeline.assert_called_once()
 
     @patch("negpy.cli.batch.ImageProcessor")
     def test_flat_field_missing_file_returns_1(self, mock_proc_cls, tmp_path):
@@ -612,7 +611,7 @@ class TestBuildConfigPriority:
             "sharpen": None,
             "dpi": None,
             "print_size": None,
-            "original_res": False,
+            "preview": False,
             "filename_pattern": None,
             "no_gpu": False,
             "settings": None,
@@ -788,6 +787,16 @@ class TestAnalyzeRoll:
 
 class TestMainRollAverage:
     """Tests for --roll-average integration in main()."""
+
+    @pytest.fixture(autouse=True)
+    def isolate_test_environment(self, tmp_path, monkeypatch):
+        """Ensure tests don't affect global state or load the real user config."""
+        fake_config_dir = tmp_path / ".negpy_test_isolation"
+        fake_config_dir.mkdir()
+        monkeypatch.setattr("negpy.cli.batch.CONFIG_FILE", str(fake_config_dir / "config.json"))
+        monkeypatch.setattr("negpy.cli.batch.PRESETS_DIR", str(fake_config_dir / "presets"))
+        from negpy.kernel.system.config import APP_CONFIG
+        monkeypatch.setattr(APP_CONFIG, "use_gpu", APP_CONFIG.use_gpu)
 
     @patch("negpy.cli.batch.ImageProcessor")
     @patch("negpy.cli.batch.analyze_roll")

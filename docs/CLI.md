@@ -59,7 +59,7 @@ You can pass individual files, directories, or a mix of both. Directories are sc
 | `--sharpen FLOAT` | `0.25` | Sharpening amount |
 | `--dpi INT` | `300` | Export DPI |
 | `--print-size CM` | `30.0` | Print long-edge size in centimeters |
-| `--original-res` | off | Export at original sensor resolution (ignores `--dpi` and `--print-size`) |
+| `--preview` | off | Render at preview resolution (~2000px) for fast experimentation. By default, exports use original sensor resolution. |
 | `--filename-pattern TEMPLATE` | `positive_{{ original_name }}` | Jinja2 filename template (see [TEMPLATING.md](TEMPLATING.md)) |
 | `--crop-offset INT` | `1` | Autocrop border offset in pixels (-5 to 20). Positive values crop more into the image, negative values leave more border. Matches the "Crop Offset" slider in the GUI. |
 | `--flat-field FILE` | none | Path to a flat-field reference frame (blank scan) for vignetting / uneven backlight correction |
@@ -432,7 +432,7 @@ These are all available parameters that can be used in `--settings` JSON files, 
 | `export_color_space` | string | `"Adobe RGB"` | Output color space. Values: `"sRGB"`, `"Adobe RGB"`, `"ProPhoto RGB"`, `"Wide Gamut RGB"`, `"ACES"`, `"Display P3 (D65)"`, `"Rec. 2020"`, `"Greyscale"`. |
 | `export_dpi` | int | `300` | Export DPI resolution. |
 | `export_print_size` | float | `30.0` | Print long-edge size in centimeters. |
-| `use_original_res` | bool | `false` | Export at original sensor resolution (ignores DPI and print size). |
+| `use_original_res` | bool | `false` | Export at original sensor resolution (ignores DPI and print size). Note: The CLI exports at original resolution by default; use `--preview` for faster ~2000px output. |
 | `filename_pattern` | string | `"positive_{{ original_name }}"` | Jinja2 filename template. See [TEMPLATING.md](TEMPLATING.md). |
 | `export_add_border` | bool | `false` | Add a border around the exported image. |
 | `export_border_size` | float | `0.0` | Border size (relative to image). |
@@ -477,8 +477,8 @@ negpy --mode bw --grade 3.5 --density 1.3 /path/to/bw_scans/
 # High-res TIFF export for printing
 negpy --dpi 600 --print-size 50.0 --color-space prophoto /path/to/scans/
 
-# Original resolution export (no resampling)
-negpy --original-res /path/to/scans/
+# Quick preview at ~2000px for experimentation
+negpy --preview /path/to/scans/
 
 # JPEG for quick web previews
 negpy --format jpeg --color-space srgb --output ./previews/ /path/to/scans/

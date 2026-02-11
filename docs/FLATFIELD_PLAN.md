@@ -137,10 +137,17 @@ if flatfield_map is not None:
     # Load raw file ourselves
     f32_buffer = load_raw_to_float32(file_path)
     f32_corrected = apply_flatfield(f32_buffer, flatfield_map)
+    # Use original resolution by default, preview size only with --preview flag
+    h_orig, w_orig = f32_corrected.shape[:2]
+    render_ref = (
+        float(APP_CONFIG.preview_render_size)
+        if args.preview
+        else float(max(h_orig, w_orig))
+    )
     # Run pipeline on corrected buffer
     result_buffer, metrics = processor.run_pipeline(
         f32_corrected, config, source_hash,
-        render_size_ref=float(APP_CONFIG.preview_render_size),
+        render_size_ref=render_ref,
         prefer_gpu=use_gpu,
     )
     # Encode to bytes (TIFF/JPEG) — extracted as helper

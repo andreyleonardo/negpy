@@ -29,7 +29,7 @@ NegPy is a film negative-to-positive converter that currently only works through
   - `--output DIR` (default: ./export)
   - `--color-space` choices from `ColorSpace` enum (default: adobe-rgb)
   - `--density FLOAT`, `--grade FLOAT`, `--sharpen FLOAT` (default: None = don't override base)
-  - `--dpi INT`, `--print-size CM`, `--original-res` flag
+  - `--dpi INT`, `--print-size CM`, `--preview` flag (renders at ~2000px for fast experimentation; original resolution is the default)
   - `--filename-pattern TEMPLATE`
   - `--no-gpu` flag
   - `--settings JSON_FILE` — load full WorkspaceConfig from JSON
@@ -74,7 +74,7 @@ NegPy is a film negative-to-positive converter that currently only works through
 
 - `TestBuildParser`: minimal args, all flags, multiple inputs, missing inputs raises, invalid mode raises
 - `TestDiscoverFiles`: single supported file, unsupported skipped, directory walk, missing path warns, mixed files+dirs
-- `TestBuildConfig`: defaults match, mode/exposure/lab overrides, export format+colorspace, dpi/print-size/original-res, filename pattern, settings JSON load, settings + CLI override, missing/invalid settings file
+- `TestBuildConfig`: defaults match, mode/exposure/lab overrides, export format+colorspace, dpi/print-size/preview, filename pattern, settings JSON load, settings + CLI override, missing/invalid settings file
 - `TestMain`: mock `ImageProcessor` to avoid real processing; test no-files-returns-1, successful batch, partial failure, output files written, no-gpu flag passes prefer_gpu=False
 
 ## Verification
