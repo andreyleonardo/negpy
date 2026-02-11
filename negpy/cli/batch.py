@@ -12,7 +12,7 @@ import argparse
 import dataclasses
 import json
 import time
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import numpy as np
 
@@ -455,7 +455,7 @@ def build_config(args: argparse.Namespace, user_config: dict) -> WorkspaceConfig
         geometry_overrides["autocrop_offset"] = args.crop_offset
     geometry = dataclasses.replace(config.geometry, **geometry_overrides) if geometry_overrides else config.geometry
 
-    retouch_overrides = {}
+    retouch_overrides: dict[str, Any] = {}
     if args.dust_remove:
         retouch_overrides["dust_remove"] = True
     if args.dust_threshold is not None:
