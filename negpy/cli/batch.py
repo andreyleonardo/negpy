@@ -17,6 +17,7 @@ from typing import List, Optional
 import numpy as np
 
 from negpy.domain.models import WorkspaceConfig, ExportConfig, ExportFormat, ColorSpace
+from negpy.features.exposure.normalization import analyze_log_exposure_bounds
 from negpy.features.flatfield.logic import load_flatfield, load_raw_to_float32, apply_flatfield
 from negpy.features.process.models import ProcessMode
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
@@ -91,6 +92,7 @@ def generate_default_config() -> int:
             "no_gpu": False,
             "crop_offset": None,
             "filename_pattern": "positive_{{ original_name }}",
+            "roll_average": False,
         },
         "processing": {
             "density": 1.0,
@@ -123,6 +125,75 @@ def list_available_presets() -> int:
         for name in presets:
             print(f"  {name}", file=sys.stderr)
     return 0
+
+
+def _robust_mean(data: np.ndarray) -> list[float]:
+    """Per-channel trimmed mean (10th-90th percentile). Matches GUI NormalizationWorker logic."""
+    results: list[float] = []
+    for ch in range(data.shape[1]):
+        ch_data = data[:, ch]
+        if len(ch_data) < 5:
+            results.append(float(np.mean(ch_data)))
+            continue
+        low, high = np.percentile(ch_data, [10, 90])
+        mask = (ch_data >= low) & (ch_data <= high)
+        valid = ch_data[mask]
+        results.append(float(np.mean(valid)) if valid.size > 0 else float(np.mean(ch_data)))
+    return results
+
+
+def analyze_roll(
+    files: List[str],
+    config: WorkspaceConfig,
+    flatfield_map: Optional[np.ndarray] = None,
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """Analyzes all files to compute roll-wide normalization floors/ceils.
+
+    Returns (locked_floors, locked_ceils) — two 3-float tuples.
+    """
+    analysis_buffer = config.process.analysis_buffer
+    process_mode = config.process.process_mode
+    e6_normalize = config.process.e6_normalize
+
+    all_floors: list[tuple[float, float, float]] = []
+    all_ceils: list[tuple[float, float, float]] = []
+
+    total = len(files)
+    print(f"Roll normalization: analyzing {total} file(s) ...", file=sys.stderr)
+
+    for i, file_path in enumerate(files, 1):
+        name = os.path.splitext(os.path.basename(file_path))[0]
+        print(f"  [{i}/{total}] {name} ...", file=sys.stderr, end="", flush=True)
+
+        f32 = load_raw_to_float32(file_path)
+        if flatfield_map is not None:
+            f32 = apply_flatfield(f32, flatfield_map)
+
+        bounds = analyze_log_exposure_bounds(
+            f32,
+            analysis_buffer=analysis_buffer,
+            process_mode=process_mode,
+            e6_normalize=e6_normalize,
+        )
+        all_floors.append(bounds.floors)
+        all_ceils.append(bounds.ceils)
+        print(" OK", file=sys.stderr)
+
+    floors_arr = np.array(all_floors)
+    ceils_arr = np.array(all_ceils)
+    avg_floors = _robust_mean(floors_arr)
+    avg_ceils = _robust_mean(ceils_arr)
+
+    print(
+        f"  Floors: ({avg_floors[0]:.4f}, {avg_floors[1]:.4f}, {avg_floors[2]:.4f})"
+        f"  Ceils: ({avg_ceils[0]:.4f}, {avg_ceils[1]:.4f}, {avg_ceils[2]:.4f})",
+        file=sys.stderr,
+    )
+
+    return (
+        (avg_floors[0], avg_floors[1], avg_floors[2]),
+        (avg_ceils[0], avg_ceils[1], avg_ceils[2]),
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -272,6 +343,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Generate default config at ~/.negpy/config.json and exit",
     )
 
+    parser.add_argument(
+        "--roll-average",
+        action="store_true",
+        default=False,
+        help="Analyze all files first to compute a shared normalization baseline (consistent color across a roll)",
+    )
+
     return parser
 
 
@@ -416,6 +494,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         args.output = cli_defaults["output"]
     if args.crop_offset is None and cli_defaults.get("crop_offset") is not None:
         args.crop_offset = cli_defaults["crop_offset"]
+    if not args.roll_average and cli_defaults.get("roll_average"):
+        args.roll_average = True
 
     files = discover_files(args.inputs)
     if not files:
@@ -445,6 +525,23 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"Flat-field loaded: {ff_path}", file=sys.stderr)
         except Exception as e:
             print(f"Error loading flat-field: {e}", file=sys.stderr)
+            return 1
+
+    # Roll normalization: two-pass analysis
+    if args.roll_average:
+        try:
+            locked_floors, locked_ceils = analyze_roll(files, config, flatfield_map)
+            config = dataclasses.replace(
+                config,
+                process=dataclasses.replace(
+                    config.process,
+                    use_roll_average=True,
+                    locked_floors=locked_floors,
+                    locked_ceils=locked_ceils,
+                ),
+            )
+        except Exception as e:
+            print(f"Error during roll analysis: {e}", file=sys.stderr)
             return 1
 
     processor = ImageProcessor()

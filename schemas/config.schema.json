@@ -59,6 +59,11 @@
                     "type": "string",
                     "default": "positive_{{ original_name }}",
                     "description": "Default Jinja2 filename template for exported files."
+                },
+                "roll_average": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Enable roll normalization by default. Analyzes all files first to compute a shared normalization baseline for consistent color across a roll."
                 }
             }
         },
