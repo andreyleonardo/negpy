@@ -55,6 +55,25 @@
                     "default": null,
                     "description": "Default autocrop border offset in pixels (-5 to 20)."
                 },
+                "dust_remove": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Enable automatic dust spot removal by default."
+                },
+                "dust_threshold": {
+                    "type": ["number", "null"],
+                    "minimum": 0.01,
+                    "maximum": 1.0,
+                    "default": null,
+                    "description": "Default dust detection sensitivity (0.01-1.0). Lower values detect more spots."
+                },
+                "dust_size": {
+                    "type": ["integer", "null"],
+                    "minimum": 3,
+                    "maximum": 8,
+                    "default": null,
+                    "description": "Default maximum dust spot size in pixels (3-8)."
+                },
                 "filename_pattern": {
                     "type": "string",
                     "default": "positive_{{ original_name }}",
