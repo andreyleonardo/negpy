@@ -14,6 +14,7 @@ from unittest.mock import patch, MagicMock
 from negpy.cli.batch import (
     build_parser, discover_files, build_config, main,
     load_user_config, generate_default_config, list_available_presets,
+    analyze_roll, _robust_mean,
     CONFIG_SCHEMA_URL,
 )
 from negpy.domain.models import ExportFormat
@@ -51,6 +52,7 @@ class TestBuildParser:
         assert args.preset is None
         assert args.list_presets is False
         assert args.init_config is False
+        assert args.roll_average is False
 
     def test_all_flags(self):
         """Every flag specified."""
@@ -72,6 +74,7 @@ class TestBuildParser:
             "--crop-offset", "5",
             "--flat-field", "blank_scan.tiff",
             "--preset", "portra-400",
+            "--roll-average",
             "file1.dng", "file2.tiff",
         ])
         assert args.mode == "bw"
@@ -90,6 +93,7 @@ class TestBuildParser:
         assert args.crop_offset == 5
         assert args.flat_field == "blank_scan.tiff"
         assert args.preset == "portra-400"
+        assert args.roll_average is True
         assert args.inputs == ["file1.dng", "file2.tiff"]
 
     def test_init_config_no_inputs_required(self):
@@ -681,3 +685,154 @@ class TestBuildConfigPriority:
         user_config = {"cli": {}, "processing": {}}
         with pytest.raises(FileNotFoundError):
             build_config(self._make_args(preset="nonexistent"), user_config)
+
+
+class TestRobustMean:
+    """Tests for _robust_mean — trimmed mean across frames per channel."""
+
+    def test_uniform_data(self):
+        """All frames have the same value -> that value."""
+        import numpy as np
+        data = np.array([[-1.5, -2.0, -2.5]] * 10)
+        result = _robust_mean(data)
+        assert len(result) == 3
+        assert abs(result[0] - (-1.5)) < 1e-6
+        assert abs(result[1] - (-2.0)) < 1e-6
+        assert abs(result[2] - (-2.5)) < 1e-6
+
+    def test_outlier_rejection(self):
+        """With >= 5 frames, extreme outliers are trimmed (10-90 percentile)."""
+        import numpy as np
+        # 8 normal frames around -2.0, plus 2 extreme outliers
+        normal = [[-2.0, -2.0, -2.0]] * 8
+        outliers = [[-10.0, -10.0, -10.0], [5.0, 5.0, 5.0]]
+        data = np.array(normal + outliers)
+        result = _robust_mean(data)
+        # Trimmed mean should be close to -2.0, not dragged by outliers
+        for ch in range(3):
+            assert abs(result[ch] - (-2.0)) < 0.5
+
+    def test_few_frames_uses_simple_mean(self):
+        """With < 5 frames, use plain mean (no trimming)."""
+        import numpy as np
+        data = np.array([[-1.0, -2.0, -3.0], [-3.0, -4.0, -5.0]])
+        result = _robust_mean(data)
+        assert abs(result[0] - (-2.0)) < 1e-6
+        assert abs(result[1] - (-3.0)) < 1e-6
+        assert abs(result[2] - (-4.0)) < 1e-6
+
+
+class TestAnalyzeRoll:
+    """Tests for analyze_roll — two-pass roll normalization analysis."""
+
+    @patch("negpy.cli.batch.analyze_log_exposure_bounds")
+    @patch("negpy.cli.batch.load_raw_to_float32")
+    def test_returns_floor_ceil_tuples(self, mock_load, mock_analyze):
+        """Returns two 3-float tuples (floors, ceils)."""
+        import numpy as np
+        from negpy.features.exposure.normalization import LogNegativeBounds
+
+        mock_load.return_value = np.ones((100, 100, 3), dtype=np.float32) * 0.5
+        mock_analyze.return_value = LogNegativeBounds((-1.5, -2.0, -2.5), (-0.1, -0.2, -0.3))
+
+        floors, ceils = analyze_roll(
+            ["/fake/a.dng", "/fake/b.dng"],
+            DEFAULT_WORKSPACE_CONFIG,
+        )
+        assert len(floors) == 3
+        assert len(ceils) == 3
+        assert mock_load.call_count == 2
+        assert mock_analyze.call_count == 2
+
+    @patch("negpy.cli.batch.analyze_log_exposure_bounds")
+    @patch("negpy.cli.batch.apply_flatfield")
+    @patch("negpy.cli.batch.load_raw_to_float32")
+    def test_applies_flatfield_when_provided(self, mock_load, mock_apply_ff, mock_analyze):
+        """When flatfield_map is provided, apply_flatfield is called per file."""
+        import numpy as np
+        from negpy.features.exposure.normalization import LogNegativeBounds
+
+        fake_img = np.ones((100, 100, 3), dtype=np.float32) * 0.5
+        fake_ff = np.ones((100, 100, 3), dtype=np.float32)
+        mock_load.return_value = fake_img
+        mock_apply_ff.return_value = fake_img
+        mock_analyze.return_value = LogNegativeBounds((-1.5, -2.0, -2.5), (-0.1, -0.2, -0.3))
+
+        analyze_roll(["/fake/a.dng"], DEFAULT_WORKSPACE_CONFIG, flatfield_map=fake_ff)
+        mock_apply_ff.assert_called_once()
+
+    @patch("negpy.cli.batch.analyze_log_exposure_bounds")
+    @patch("negpy.cli.batch.load_raw_to_float32")
+    def test_forwards_config_params(self, mock_load, mock_analyze):
+        """analysis_buffer, process_mode, e6_normalize from config are forwarded."""
+        import numpy as np
+        import dataclasses
+        from negpy.features.exposure.normalization import LogNegativeBounds
+
+        mock_load.return_value = np.ones((100, 100, 3), dtype=np.float32) * 0.5
+        mock_analyze.return_value = LogNegativeBounds((-1.0, -1.0, -1.0), (-0.1, -0.1, -0.1))
+
+        config = dataclasses.replace(
+            DEFAULT_WORKSPACE_CONFIG,
+            process=dataclasses.replace(
+                DEFAULT_WORKSPACE_CONFIG.process,
+                process_mode=ProcessMode.BW,
+                analysis_buffer=0.1,
+            ),
+        )
+        analyze_roll(["/fake/a.dng"], config)
+        _, kwargs = mock_analyze.call_args
+        assert kwargs["analysis_buffer"] == 0.1
+        assert kwargs["process_mode"] == ProcessMode.BW
+
+
+class TestMainRollAverage:
+    """Tests for --roll-average integration in main()."""
+
+    @patch("negpy.cli.batch.ImageProcessor")
+    @patch("negpy.cli.batch.analyze_roll")
+    def test_roll_average_sets_locked_config(self, mock_analyze, mock_proc_cls, tmp_path):
+        """--roll-average should run analysis and set locked_floors/ceils on config."""
+        (tmp_path / "a.dng").write_bytes(b"fake")
+        (tmp_path / "b.dng").write_bytes(b"fake")
+        out_dir = tmp_path / "output"
+
+        mock_analyze.return_value = ((-1.5, -2.0, -2.5), (-0.1, -0.2, -0.3))
+
+        mock_processor = MagicMock()
+        mock_processor.process_export.return_value = (b"bytes", "tiff")
+        mock_proc_cls.return_value = mock_processor
+
+        exit_code = main([
+            "--roll-average",
+            "--output", str(out_dir),
+            str(tmp_path / "a.dng"), str(tmp_path / "b.dng"),
+        ])
+
+        assert exit_code == 0
+        mock_analyze.assert_called_once()
+
+        # Verify process_export was called with config that has locked floors/ceils
+        call_args = mock_processor.process_export.call_args_list[0]
+        config_used = call_args[0][1]  # second positional arg is config
+        assert config_used.process.use_roll_average is True
+        assert config_used.process.locked_floors == (-1.5, -2.0, -2.5)
+        assert config_used.process.locked_ceils == (-0.1, -0.2, -0.3)
+
+    @patch("negpy.cli.batch.ImageProcessor")
+    @patch("negpy.cli.batch.analyze_roll")
+    def test_roll_average_prints_analysis_info(self, mock_analyze, mock_proc_cls, tmp_path, capsys):
+        """--roll-average should print analysis progress to stderr."""
+        (tmp_path / "a.dng").write_bytes(b"fake")
+        out_dir = tmp_path / "output"
+
+        mock_analyze.return_value = ((-1.5, -2.0, -2.5), (-0.1, -0.2, -0.3))
+
+        mock_processor = MagicMock()
+        mock_processor.process_export.return_value = (b"bytes", "tiff")
+        mock_proc_cls.return_value = mock_processor
+
+        main(["--roll-average", "--output", str(out_dir), str(tmp_path / "a.dng")])
+
+        captured = capsys.readouterr()
+        assert "Roll normalization" in captured.err or "roll" in captured.err.lower()

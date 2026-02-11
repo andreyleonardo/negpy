@@ -68,6 +68,7 @@ You can pass individual files, directories, or a mix of both. Directories are sc
 | `--preset NAME` | none | Load a film preset by name (e.g. `portra-400`) from `~/.negpy/presets/` |
 | `--init-config` | off | Generate default config at `~/.negpy/config.json` and exit |
 | `--list-presets` | off | List available presets and exit |
+| `--roll-average` | off | Analyze all files first to compute a shared normalization baseline (consistent color across a roll) |
 
 ## Loading Priority
 
@@ -311,6 +312,57 @@ negpy --flat-field blank.tiff --mode bw --grade 3.0 --output ./prints/ /path/to/
 The flat-field frame is loaded once and applied to every file in the batch. If the flat-field and scan have different resolutions, the flat-field is resized to match each scan automatically.
 
 You can set `flat_field` in your config file (`~/.negpy/config.json`) to apply the same flat-field reference automatically on every run without specifying `--flat-field` each time.
+
+## Roll Normalization
+
+By default, NegPy analyzes each frame independently to determine its white point (film base / orange mask) and black point (deepest shadow). This per-frame analysis works well for individual images but can produce inconsistent color balance across frames from the same roll — a bright sky scene gets a different baseline than a dark interior.
+
+The `--roll-average` flag enables a two-pass processing mode that gives you consistent color across an entire roll, similar to locking white balance from the film border in tools like Negative Lab Pro.
+
+### How it works
+
+1. **Analysis pass** — Every file is loaded and analyzed to detect per-channel density floors (film base) and ceils (shadow limit) in log-density space. If `--flat-field` is provided, the flat-field correction is applied before analysis.
+
+2. **Robust averaging** — The per-frame floors and ceils are averaged across the roll using a trimmed mean (10th–90th percentile), which rejects outlier frames (e.g., severely under/over-exposed shots).
+
+3. **Processing pass** — All frames are processed using the shared baseline. Every frame maps the same film base color to white and the same shadow density to black, giving uniform color balance.
+
+### When to use it
+
+- Batches from the **same roll** of film scanned with the same settings
+- When you want **consistent color** across frames (like locking WB in Lightroom/NLP)
+- Works with C41, B&W, and E-6 film
+
+### When NOT to use it
+
+- Mixing different film stocks in the same batch
+- Mixing scans with different scanner settings or exposure
+
+### Usage
+
+```bash
+# Roll-consistent normalization for a folder of scans
+negpy --roll-average /path/to/roll/
+
+# Combine with flat-field and a preset
+negpy --roll-average --flat-field blank.tiff --preset portra-400 /path/to/roll/
+
+# Roll normalization with manual exposure tweaks
+negpy --roll-average --density 1.3 --grade 2.5 /path/to/roll/
+```
+
+Output during processing:
+
+```
+Roll normalization: analyzing 36 file(s) ...
+  [1/36] DSC0001 ... OK
+  [2/36] DSC0002 ... OK
+  ...
+  Floors: (-1.2345, -1.7890, -2.1234)  Ceils: (-0.0123, -0.0456, -0.0789)
+Processing 36 file(s) -> /home/user/export
+  [1/36] DSC0001 ... OK (2.3s)
+  ...
+```
 
 ## Settings Reference
 
