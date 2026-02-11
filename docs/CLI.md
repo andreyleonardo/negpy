@@ -62,6 +62,9 @@ You can pass individual files, directories, or a mix of both. Directories are sc
 | `--preview` | off | Render at preview resolution (~2000px) for fast experimentation. By default, exports use original sensor resolution. |
 | `--filename-pattern TEMPLATE` | `positive_{{ original_name }}` | Jinja2 filename template (see [TEMPLATING.md](TEMPLATING.md)) |
 | `--crop-offset INT` | `1` | Autocrop border offset in pixels (-5 to 20). Positive values crop more into the image, negative values leave more border. Matches the "Crop Offset" slider in the GUI. |
+| `--dust-remove` | off | Enable automatic dust spot removal |
+| `--dust-threshold FLOAT` | `0.66` | Dust detection sensitivity (0.01-1.0). Lower values detect more spots (may include false positives). |
+| `--dust-size INT` | `4` | Maximum dust spot size in pixels (3-8). Spots larger than this are ignored. |
 | `--flat-field FILE` | none | Path to a flat-field reference frame (blank scan) for vignetting / uneven backlight correction |
 | `--no-gpu` | off | Disable GPU acceleration, use CPU only |
 | `--settings JSON_FILE` | none | Load base settings from a JSON file |

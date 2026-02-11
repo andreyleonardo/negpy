@@ -197,6 +197,9 @@ class TestBuildConfig:
             "no_gpu": False,
             "settings": None,
             "crop_offset": None,
+            "dust_remove": False,
+            "dust_threshold": None,
+            "dust_size": None,
             "preset": None,
             "inputs": ["file.dng"],
         }
@@ -616,6 +619,9 @@ class TestBuildConfigPriority:
             "no_gpu": False,
             "settings": None,
             "crop_offset": None,
+            "dust_remove": False,
+            "dust_threshold": None,
+            "dust_size": None,
             "preset": None,
             "inputs": ["file.dng"],
         }

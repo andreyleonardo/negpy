@@ -12,7 +12,7 @@ import argparse
 import dataclasses
 import json
 import time
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import numpy as np
 
@@ -308,6 +308,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--dust-remove",
+        action="store_true",
+        default=False,
+        help="Enable automatic dust spot removal",
+    )
+
+    parser.add_argument(
+        "--dust-threshold",
+        type=float,
+        default=None,
+        metavar="FLOAT",
+        help="Dust detection sensitivity, 0.01-1.0 (default: 0.66). Lower values detect more spots.",
+    )
+
+    parser.add_argument(
+        "--dust-size",
+        type=int,
+        default=None,
+        metavar="INT",
+        help="Maximum dust spot size in pixels, 3-8 (default: 4). Spots larger than this are ignored.",
+    )
+
+    parser.add_argument(
         "--flat-field",
         default=None,
         metavar="FILE",
@@ -432,6 +455,15 @@ def build_config(args: argparse.Namespace, user_config: dict) -> WorkspaceConfig
         geometry_overrides["autocrop_offset"] = args.crop_offset
     geometry = dataclasses.replace(config.geometry, **geometry_overrides) if geometry_overrides else config.geometry
 
+    retouch_overrides: dict[str, Any] = {}
+    if args.dust_remove:
+        retouch_overrides["dust_remove"] = True
+    if args.dust_threshold is not None:
+        retouch_overrides["dust_threshold"] = args.dust_threshold
+    if args.dust_size is not None:
+        retouch_overrides["dust_size"] = args.dust_size
+    retouch = dataclasses.replace(config.retouch, **retouch_overrides) if retouch_overrides else config.retouch
+
     export_overrides = {
         "export_path": os.path.abspath(args.output),
         "export_fmt": FORMAT_MAP[args.output_format],
@@ -445,7 +477,7 @@ def build_config(args: argparse.Namespace, user_config: dict) -> WorkspaceConfig
         export_overrides["filename_pattern"] = args.filename_pattern
     export = dataclasses.replace(config.export, **export_overrides)
 
-    return dataclasses.replace(config, process=process, exposure=exposure, geometry=geometry, lab=lab, export=export)
+    return dataclasses.replace(config, process=process, exposure=exposure, geometry=geometry, lab=lab, retouch=retouch, export=export)
 
 
 def encode_export(buffer: np.ndarray, export_settings: ExportConfig) -> bytes:
