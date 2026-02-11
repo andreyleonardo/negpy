@@ -5,6 +5,10 @@ import cv2
 
 
 EPSILON = 1e-6
+# Minimum threshold for flat-field values (as fraction of mean brightness).
+# Values below this are clamped to avoid amplifying noise in dark regions
+# like unexposed film borders. 0.1 = 10% of mean brightness.
+FLATFIELD_MIN_THRESHOLD = 0.1
 
 
 def normalize_flatfield(flat: np.ndarray) -> np.ndarray:
@@ -12,7 +16,8 @@ def normalize_flatfield(flat: np.ndarray) -> np.ndarray:
 
     Divides each channel by its mean so the map is centered around 1.0:
     values >1.0 are brighter-than-average, <1.0 are dimmer. The minimum
-    is clamped to epsilon to prevent division by zero when used as a divisor.
+    is clamped to FLATFIELD_MIN_THRESHOLD to prevent noise amplification
+    in dark regions (like unexposed film borders).
     """
     flat = flat.astype(np.float32)
     flat = np.maximum(flat, EPSILON)
@@ -20,7 +25,8 @@ def normalize_flatfield(flat: np.ndarray) -> np.ndarray:
         ch_mean = flat[:, :, ch].mean()
         if ch_mean > EPSILON:
             flat[:, :, ch] /= ch_mean
-    flat = np.maximum(flat, EPSILON)
+    # Clamp to minimum threshold to avoid noise amplification in dark areas
+    flat = np.maximum(flat, FLATFIELD_MIN_THRESHOLD)
     return flat
 
 
