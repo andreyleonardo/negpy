@@ -52,10 +52,10 @@ You can pass individual files, directories, or a mix of both. Directories are sc
 | `FILE_OR_DIR` (positional) | *required* | One or more input files or directories |
 | `--mode` | `c41` | Film type: `c41` (color negative), `bw` (black & white), `e6` (slide) |
 | `--format` | `tiff` | Output format: `tiff` (16-bit) or `jpeg` |
-| `--output DIR` | `./export` | Output directory (created automatically) |
+| `--output DIR` | `<input_dir>/export` | Output directory (created automatically). Defaults to an `export` subfolder: inside the input directory for a single directory input, inside the parent directory for a single file input, or `./export` for multiple inputs. |
 | `--color-space` | `adobe-rgb` | Output color space (see below) |
-| `--density FLOAT` | `1.0` | Print density / brightness |
-| `--grade FLOAT` | `2.0` | Contrast grade |
+| `--density FLOAT` | `0.45` | Print density / brightness |
+| `--grade FLOAT` | `2.3` | Contrast grade |
 | `--sharpen FLOAT` | `0.25` | Sharpening amount |
 | `--dpi INT` | `300` | Export DPI |
 | `--print-size CM` | `30.0` | Print long-edge size in centimeters |
@@ -112,7 +112,7 @@ The config has two sections:
 {
     "cli": {
         "flat_field": "/path/to/my/flat_field.tiff",
-        "output": "./export",
+        "output": null,
         "mode": "c41",
         "format": "tiff",
         "color_space": "adobe-rgb",
@@ -121,17 +121,22 @@ The config has two sections:
         "filename_pattern": "positive_{{ original_name }}"
     },
     "processing": {
-        "density": 1.0,
-        "grade": 2.0,
+        "density": 0.45,
+        "grade": 2.3,
         "wb_cyan": 0.0,
         "wb_magenta": 0.0,
         "wb_yellow": 0.0,
         "sharpen": 0.25,
-        "color_separation": 1.0,
-        "saturation": 1.0
+        "color_separation": 1.3,
+        "saturation": 1.25
     }
 }
 ```
+
+When `output` is `null` or not specified, the output directory is computed automatically based on your input:
+- Single directory input (e.g., `negpy ~/Documents/my_scans`) → `~/Documents/my_scans/export`
+- Single file input (e.g., `negpy ~/Documents/my_scans/my_pic.RAF`) → `~/Documents/my_scans/export`
+- Multiple inputs → `./export`
 
 Set `flat_field` to your scanner's flat-field reference path so it's always applied:
 
@@ -375,8 +380,8 @@ These are all available parameters that can be used in `--settings` JSON files, 
 
 | Key | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `density` | float | `1.0` | Print density / brightness. Higher values produce a darker (denser) print. |
-| `grade` | float | `2.0` | Contrast grade, like paper hardness in the darkroom. Range: ~0.5 (very soft) to ~5.0 (very hard). |
+| `density` | float | `0.45` | Print density / brightness. Higher values produce a darker (denser) print. |
+| `grade` | float | `2.3` | Contrast grade, like paper hardness in the darkroom. Range: ~0.5 (very soft) to ~5.0 (very hard). |
 | `use_camera_wb` | bool | `false` | Use the camera's white balance from EXIF data instead of manual WB. |
 | `wb_cyan` | float | `0.0` | Cyan/red color balance. Negative shifts toward red, positive toward cyan. Range: -1.0 to 1.0. |
 | `wb_magenta` | float | `0.0` | Magenta/green color balance. Negative shifts toward green, positive toward magenta. Range: -1.0 to 1.0. |
@@ -392,8 +397,8 @@ These are all available parameters that can be used in `--settings` JSON files, 
 
 | Key | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `color_separation` | float | `1.0` | Color channel separation strength. Values >1.0 increase inter-channel contrast, <1.0 reduce it. |
-| `saturation` | float | `1.0` | Saturation multiplier. 1.0 is neutral, 0.0 is fully desaturated. |
+| `color_separation` | float | `1.3` | Color channel separation strength. Values >1.0 increase inter-channel contrast, <1.0 reduce it. |
+| `saturation` | float | `1.25` | Saturation multiplier. 1.0 is neutral, 0.0 is fully desaturated. |
 | `clahe_strength` | float | `0.0` | Adaptive local contrast (CLAHE). 0.0 is off, higher values increase local contrast enhancement. |
 | `sharpen` | float | `0.25` | Output sharpening amount. 0.0 is no sharpening. |
 

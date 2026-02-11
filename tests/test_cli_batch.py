@@ -14,7 +14,7 @@ from unittest.mock import patch, MagicMock
 from negpy.cli.batch import (
     build_parser, discover_files, build_config, main,
     load_user_config, generate_default_config, list_available_presets,
-    analyze_roll, _robust_mean,
+    analyze_roll, _robust_mean, compute_output_dir,
     CONFIG_SCHEMA_URL,
 )
 from negpy.domain.models import ExportFormat
@@ -36,7 +36,7 @@ class TestBuildParser:
         assert args.inputs == ["input.dng"]
         assert args.mode == "c41"
         assert args.output_format == "tiff"
-        assert args.output == "./export"
+        assert args.output is None  # Dynamic default computed from inputs
         assert args.color_space == "adobe-rgb"
         assert args.density is None
         assert args.grade is None
@@ -178,6 +178,38 @@ class TestDiscoverFiles:
         (tmp_path / "scan.tif").write_bytes(b"fake")
         result = discover_files([str(tmp_path)])
         assert len(result) == 2
+
+
+class TestComputeOutputDir:
+    def test_single_directory_returns_subdir(self, tmp_path):
+        """Single directory input -> <dir>/export."""
+        d = tmp_path / "my_scans"
+        d.mkdir()
+        result = compute_output_dir([str(d)])
+        assert result == str(d / "export")
+
+    def test_single_file_returns_parent_export(self, tmp_path):
+        """Single file input -> <parent_dir>/export."""
+        d = tmp_path / "my_scans"
+        d.mkdir()
+        f = d / "my_pic.RAF"
+        f.write_bytes(b"fake")
+        result = compute_output_dir([str(f)])
+        assert result == str(d / "export")
+
+    def test_multiple_inputs_returns_cwd_export(self, tmp_path):
+        """Multiple inputs -> ./export."""
+        f1 = tmp_path / "a.dng"
+        f2 = tmp_path / "b.dng"
+        f1.write_bytes(b"fake")
+        f2.write_bytes(b"fake")
+        result = compute_output_dir([str(f1), str(f2)])
+        assert result == os.path.abspath("./export")
+
+    def test_empty_inputs_returns_cwd_export(self):
+        """Empty inputs -> ./export."""
+        result = compute_output_dir([])
+        assert result == os.path.abspath("./export")
 
 
 class TestBuildConfig:

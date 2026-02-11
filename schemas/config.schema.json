@@ -21,9 +21,9 @@
                     "description": "Default path to a flat-field reference frame (blank scan) for vignetting correction. Applied automatically unless --flat-field is specified."
                 },
                 "output": {
-                    "type": "string",
-                    "default": "./export",
-                    "description": "Default output directory."
+                    "type": ["string", "null"],
+                    "default": null,
+                    "description": "Default output directory. When null, output is computed automatically: <input_dir>/export for single directory input, <parent_dir>/export for single file input, ./export for multiple inputs."
                 },
                 "mode": {
                     "type": "string",
