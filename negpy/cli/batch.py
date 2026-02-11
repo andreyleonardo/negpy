@@ -85,7 +85,7 @@ def generate_default_config() -> int:
         "$schema": CONFIG_SCHEMA_URL,
         "cli": {
             "flat_field": None,
-            "output": "./export",
+            "output": None,
             "mode": "c41",
             "format": "tiff",
             "color_space": "adobe-rgb",
@@ -95,14 +95,15 @@ def generate_default_config() -> int:
             "roll_average": False,
         },
         "processing": {
-            "density": 1.0,
-            "grade": 2.0,
+            "density": 0.45,
+            "grade": 2.3,
             "wb_cyan": 0.0,
             "wb_magenta": 0.0,
             "wb_yellow": 0.0,
             "sharpen": 0.25,
-            "color_separation": 1.0,
-            "saturation": 1.0,
+            "color_separation": 1.3,
+            "saturation": 1.25,
+            "analysis_buffer": 0.07,
         },
     }
     with open(CONFIG_FILE, "w") as f:
@@ -233,9 +234,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--output",
-        default="./export",
+        default=None,
         metavar="DIR",
-        help="Output directory (default: ./export)",
+        help="Output directory (default: <input_dir>/export for single input, ./export otherwise)",
     )
 
     parser.add_argument(
@@ -405,6 +406,22 @@ def discover_files(inputs: List[str]) -> List[str]:
     return files
 
 
+def compute_output_dir(inputs: List[str]) -> str:
+    """Computes default output directory based on inputs.
+
+    - If a single directory is provided, output to <dir>/export
+    - If a single file is provided, output to <parent_dir>/export
+    - For multiple inputs, output to ./export
+    """
+    if len(inputs) == 1:
+        path = os.path.abspath(inputs[0])
+        if os.path.isdir(path):
+            return os.path.join(path, "export")
+        elif os.path.isfile(path):
+            return os.path.join(os.path.dirname(path), "export")
+    return os.path.abspath("./export")
+
+
 def build_config(args: argparse.Namespace, user_config: dict) -> WorkspaceConfig:
     """Builds WorkspaceConfig with loading priority:
     DEFAULT → user config → preset → --settings → CLI flags
@@ -526,14 +543,22 @@ def main(argv: Optional[List[str]] = None) -> int:
     cli_defaults = user_config.get("cli", {})
     if args.flat_field is None and cli_defaults.get("flat_field"):
         args.flat_field = cli_defaults["flat_field"]
-    if args.output == "./export" and "output" in cli_defaults:
-        args.output = cli_defaults["output"]
     if args.crop_offset is None and cli_defaults.get("crop_offset") is not None:
         args.crop_offset = cli_defaults["crop_offset"]
     if not args.roll_average and cli_defaults.get("roll_average"):
         args.roll_average = True
+    if not args.dust_remove and cli_defaults.get("dust_remove"):
+        args.dust_remove = True
 
     files = discover_files(args.inputs)
+
+    # Determine output directory: CLI flag > user config > computed from inputs
+    if args.output is None:
+        if cli_defaults.get("output"):
+            args.output = cli_defaults["output"]
+        else:
+            args.output = compute_output_dir(args.inputs)
+
     if not files:
         print("Error: No supported image files found.", file=sys.stderr)
         return 1
