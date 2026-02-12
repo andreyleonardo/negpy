@@ -24,6 +24,13 @@
             "maximum": 1,
             "description": "Edge buffer percentage excluded from per-frame analysis."
         },
+        "pre_wb": {
+            "type": "number",
+            "default": 0.0,
+            "minimum": 0.0,
+            "maximum": 1.0,
+            "description": "Pre-white-balance strength. Neutralizes per-stock color casts in normalized log-density space before the characteristic curve. 0.0 is off, 1.0 is full auto-neutralization. Recommended starting value: 0.75."
+        },
         "e6_normalize": {
             "type": "boolean",
             "default": true,

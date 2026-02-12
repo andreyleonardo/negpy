@@ -56,6 +56,7 @@ You can pass individual files, directories, or a mix of both. Directories are sc
 | `--color-space` | `adobe-rgb` | Output color space (see below) |
 | `--density FLOAT` | `0.45` | Print density / brightness |
 | `--grade FLOAT` | `2.3` | Contrast grade |
+| `--pre-wb FLOAT` | `0.0` | Pre-white-balance strength (0.0–1.0). Neutralizes per-stock color casts before the characteristic curve. See [Pre-White Balance](#pre-white-balance). |
 | `--sharpen FLOAT` | `0.25` | Sharpening amount |
 | `--dpi INT` | `300` | Export DPI |
 | `--print-size CM` | `30.0` | Print long-edge size in centimeters |
@@ -126,6 +127,7 @@ The config has two sections:
         "wb_cyan": 0.0,
         "wb_magenta": 0.0,
         "wb_yellow": 0.0,
+        "pre_wb": 0.0,
         "sharpen": 0.25,
         "color_separation": 1.3,
         "saturation": 1.25
@@ -372,6 +374,48 @@ Processing 36 file(s) -> /home/user/export
   ...
 ```
 
+## Pre-White Balance
+
+Different film stocks (Portra, Ektar, Gold, Fuji 400H, etc.) have different orange mask densities and dye spectral responses. NegPy's normalization step stretches each RGB channel independently to remove the orange mask, but the resulting color balance still varies by stock — you end up having to manually adjust the CMY sliders for every film stock.
+
+The `--pre-wb` flag adds an automatic white balance correction step that runs in the normalized log-density space, *before* the characteristic curve. This is conceptually the same approach used by Negative Lab Pro's "pre-saturation" white balance.
+
+### How it works
+
+1. After normalization stretches each channel to [0, 1], the pre-WB step computes the trimmed mean (5th–95th percentile) of each channel
+2. The deviation between channels indicates the systematic color cast from the film stock
+3. Corrective offsets shift each channel toward a common neutral midpoint
+4. The `strength` parameter (0.0–1.0) controls how much correction is applied
+
+With pre-WB active, the CMY sliders become purely creative tools rather than per-stock correction knobs.
+
+### Usage
+
+```bash
+# Full auto-neutralization
+negpy --pre-wb 1.0 /path/to/scans/
+
+# Partial correction (good starting point)
+negpy --pre-wb 0.75 /path/to/scans/
+
+# Combine with a film preset — the preset handles density/grade/etc,
+# pre-wb handles the stock-specific color cast
+negpy --pre-wb 0.75 --preset portra-400 /path/to/scans/
+
+# Works with roll normalization too
+negpy --pre-wb 0.75 --roll-average /path/to/roll/
+
+# Set once in your config so you never think about it again
+# ~/.negpy/config.json → "processing": { "pre_wb": 0.75, ... }
+```
+
+### Tips
+
+- **Start at 0.75** — full 1.0 can sometimes overcorrect scenes with intentional color dominance (e.g. golden hour, neon lights)
+- **Pair with `--roll-average`** — roll normalization gives consistent *density* across frames, pre-WB gives consistent *color balance* across stocks
+- **Works with all modes** — C41, B&W, and E6. For B&W it's less critical since the output is converted to luminance, but it can still improve the tonal response
+- **Zero cost when off** — `--pre-wb 0.0` (the default) skips the analysis entirely
+
 ## Settings Reference
 
 These are all available parameters that can be used in `--settings` JSON files, preset files (`~/.negpy/presets/`), and the `processing` section of `~/.negpy/config.json`. All keys are optional — only include what you want to change.
@@ -415,6 +459,7 @@ These are all available parameters that can be used in `--settings` JSON files, 
 | Key | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `process_mode` | string | `"C41"` | Film type. Values: `"C41"` (color negative), `"B&W"` (black & white), `"E-6"` (slide/chrome). |
+| `pre_wb` | float | `0.0` | Pre-white-balance strength (0.0–1.0). Neutralizes per-stock color casts in normalized log-density space before the characteristic curve. See [Pre-White Balance](#pre-white-balance). |
 | `e6_normalize` | bool | `true` | Normalize E-6 slides per-channel. Helps with color casts on slide film. |
 
 ### Retouch
@@ -458,6 +503,7 @@ A complete `settings.json` showing all commonly adjusted parameters:
     "wb_cyan": -0.05,
     "wb_magenta": 0.02,
     "wb_yellow": 0.0,
+    "pre_wb": 0.75,
     "color_separation": 1.1,
     "saturation": 1.0,
     "sharpen": 0.3,
@@ -502,6 +548,12 @@ negpy --flat-field blank_scan.tiff /path/to/scans/
 
 # CPU-only processing (no GPU)
 negpy --no-gpu /path/to/scans/
+
+# Auto white balance to neutralize film stock color casts
+negpy --pre-wb 0.75 /path/to/scans/
+
+# Pre-WB + roll normalization for consistent color across a whole roll
+negpy --pre-wb 0.75 --roll-average /path/to/roll/
 
 # Use saved settings from the GUI
 negpy --settings my_recipe.json --output ./prints/ /path/to/scans/

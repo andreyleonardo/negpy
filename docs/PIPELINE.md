@@ -23,6 +23,10 @@ Here is what actually happens to your image. We apply these steps in order, pass
     *   **Negative (C-41/B&W)**: Raw low-signal (Film Base) maps to Floor ($0.0$). Raw high-signal (Highlights) maps to Ceiling ($1.0$). Range: 0.5% to 99.5%.
     *   **Positive (E-6)**: Raw high-signal (Highlights) maps to Floor ($0.0$). Raw low-signal (Shadows) maps to Ceiling ($1.0$). Range: 99.9% to 0.01%.
 *   **Stretch**: All modes use independent channel bounding. This neutralizes the orange mask in negatives and base tints/fading in reversal film by stretching each channel to the full $[0, 1]$ range.
+*   **Pre-White Balance** *(optional)*: After normalization, an optional pre-WB step (`pre_wb` parameter, 0.0–1.0) can further neutralize per-stock color casts. It computes the trimmed mean of each normalized channel, finds the common neutral midpoint, and applies corrective offsets scaled by the strength parameter:
+    $$\text{offset}_{ch} = s \cdot (\bar{x}_{ch} - \bar{x}_{neutral})$$
+    $$x'_{ch} = \text{clamp}(x_{ch} - \text{offset}_{ch},\ 0,\ 1)$$
+    This operates in the same domain as Negative Lab Pro's pre-saturation white balance.
 
 ---
 
