@@ -485,6 +485,7 @@ def build_config(args: argparse.Namespace, user_config: dict) -> WorkspaceConfig
         "export_path": os.path.abspath(args.output),
         "export_fmt": FORMAT_MAP[args.output_format],
         "export_color_space": COLOR_SPACE_MAP[args.color_space],
+        "use_original_res": not args.preview,  # Original resolution by default, DPI-based when --preview
     }
     if args.dpi is not None:
         export_overrides["export_dpi"] = args.dpi
@@ -505,12 +506,16 @@ def encode_export(buffer: np.ndarray, export_settings: ExportConfig) -> bytes:
     is_tiff = export_settings.export_fmt != ExportFormat.JPEG
     if is_tiff:
         img_int = float_to_uint16(buffer)
+        # Ensure RGB (strip alpha if present)
+        if img_int.ndim == 3 and img_int.shape[2] == 4:
+            img_int = img_int[:, :, :3]
         output_buf = io.BytesIO()
         tifffile.imwrite(
             output_buf,
             img_int,
             photometric="rgb" if img_int.ndim == 3 else "minisblack",
-            compression="lzw",
+            compression="adobe_deflate",  # Better compression than LZW for photos
+            predictor=True,
         )
         return output_buf.getvalue()
     else:
