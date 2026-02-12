@@ -288,6 +288,16 @@ class TestBuildConfig:
         assert config.export.export_dpi == 600
         assert config.export.export_print_size == 40.0
 
+    def test_use_original_res_default(self):
+        """By default, CLI exports at original resolution."""
+        config = build_config(self._make_args(), {"cli": {}, "processing": {}})
+        assert config.export.use_original_res is True
+
+    def test_use_original_res_preview_mode(self):
+        """When --preview is used, use_original_res is False (DPI-based sizing)."""
+        config = build_config(self._make_args(preview=True), {"cli": {}, "processing": {}})
+        assert config.export.use_original_res is False
+
     def test_filename_pattern(self):
         config = build_config(self._make_args(filename_pattern="{{ date }}_{{ original_name }}"), {"cli": {}, "processing": {}})
         assert config.export.filename_pattern == "{{ date }}_{{ original_name }}"
