@@ -54,7 +54,6 @@ class NormalizationProcessor:
                 context.metrics["log_bounds"] = bounds
                 context.metrics["log_bounds_buffer_val"] = self.config.analysis_buffer
                 context.metrics["log_bounds_norm_val"] = self.config.e6_normalize
-        
 
         res = normalize_log_image(img_log, bounds)
 

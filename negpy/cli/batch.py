@@ -529,6 +529,7 @@ def encode_export(buffer: np.ndarray, export_settings: ExportConfig) -> bytes:
         return output_buf.getvalue()
     else:
         from PIL import Image
+
         img_int = float_to_uint8(buffer)
         pil_img = Image.fromarray(img_int)
         output_buf = io.BytesIO()
@@ -656,9 +657,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 elif use_gpu and processor.engine_gpu:
                     # GPU path: use engine_gpu.process() which doesn't pass render_size_ref,
                     # so output uses standard DPI-based sizing (matches process_export)
-                    result_buffer, _metrics = processor.engine_gpu.process(
-                        f32_corrected, config, scale_factor=export_scale
-                    )
+                    result_buffer, _metrics = processor.engine_gpu.process(f32_corrected, config, scale_factor=export_scale)
                 else:
                     # CPU fallback
                     result_buffer, _metrics = processor.run_pipeline(
