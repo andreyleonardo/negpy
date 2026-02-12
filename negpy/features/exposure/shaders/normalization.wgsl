@@ -3,8 +3,9 @@ struct NormUniforms {
     ceils: vec4<f32>,
     mode: u32,
     normalize_flag: u32,
-    pad: vec2<f32>,
-    pad2: vec4<f32>,
+    pre_wb_strength: f32,
+    _pad: f32,
+    pre_wb_offsets: vec4<f32>,
 };
 
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
@@ -24,18 +25,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     let coords = vec2<i32>(i32(gid.x), i32(gid.y));
     var color = textureLoad(input_tex, coords, 0).rgb;
-    
+
     let is_e6 = params.mode == 2u;
 
     let epsilon = 1e-6;
     let log_color = log10_vec(max(color, vec3<f32>(epsilon)));
-    
+
     var res: vec3<f32>;
 
     for (var ch = 0; ch < 3; ch++) {
         let f = params.floors[ch];
         let c = params.ceils[ch];
-        
+
         let delta = c - f;
         var denom = delta;
         if (abs(delta) < epsilon) {
@@ -45,6 +46,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
         let norm = (log_color[ch] - f) / denom;
         res[ch] = clamp(norm, 0.0, 1.0);
+    }
+
+    // Pre-white-balance correction
+    if (params.pre_wb_strength > 0.0) {
+        res = clamp(res - params.pre_wb_offsets.xyz, vec3<f32>(0.0), vec3<f32>(1.0));
     }
 
     textureStore(output_tex, coords, vec4<f32>(res, 1.0));

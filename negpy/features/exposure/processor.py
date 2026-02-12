@@ -8,6 +8,8 @@ from negpy.kernel.image.logic import get_luminance
 from negpy.features.exposure.normalization import (
     normalize_log_image,
     analyze_log_exposure_bounds,
+    compute_pre_wb_offsets,
+    apply_pre_white_balance,
     LogNegativeBounds,
 )
 
@@ -55,6 +57,18 @@ class NormalizationProcessor:
         
 
         res = normalize_log_image(img_log, bounds)
+
+        if self.config.pre_wb > 0.0:
+            offsets = compute_pre_wb_offsets(
+                image,
+                bounds,
+                self.config.pre_wb,
+                context.active_roi,
+                self.config.analysis_buffer,
+            )
+            context.metrics["pre_wb_offsets"] = offsets
+            res = apply_pre_white_balance(res, offsets)
+
         context.metrics["normalized_log"] = res
         return res
 

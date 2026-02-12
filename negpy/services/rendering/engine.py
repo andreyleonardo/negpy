@@ -94,6 +94,7 @@ class DarkroomEngine:
         base_key = (
             settings.geometry,
             settings.process.analysis_buffer,
+            settings.process.pre_wb,
             settings.process.use_roll_average,
             settings.process.is_local_initialized,
         )

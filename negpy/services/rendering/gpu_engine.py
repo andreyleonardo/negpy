@@ -22,6 +22,7 @@ from negpy.features.geometry.logic import (
 )
 from negpy.features.exposure.normalization import (
     analyze_log_exposure_bounds,
+    compute_pre_wb_offsets,
     LogNegativeBounds,
 )
 from negpy.services.view.coordinate_mapping import CoordinateMapping
@@ -302,6 +303,25 @@ class GPUEngine:
                 process_mode=settings.process.process_mode,
                 e6_normalize=settings.process.e6_normalize,
             )
+
+        if settings.process.pre_wb > 0.0:
+            wb_source = img.copy()
+            if not tiling_mode:
+                if settings.geometry.rotation != 0:
+                    wb_source = np.rot90(wb_source, k=settings.geometry.rotation)
+                if settings.geometry.flip_horizontal:
+                    wb_source = np.fliplr(wb_source)
+                if settings.geometry.flip_vertical:
+                    wb_source = np.flipud(wb_source)
+            self._pre_wb_offsets = compute_pre_wb_offsets(
+                wb_source,
+                bounds,
+                settings.process.pre_wb,
+                roi if not tiling_mode else None,
+                settings.process.analysis_buffer,
+            )
+        else:
+            self._pre_wb_offsets = (0.0, 0.0, 0.0)
 
         pw, ph, cw, ch, ox, oy = self._calculate_layout_dims(settings, crop_w, crop_h, render_size_ref)
 
@@ -584,10 +604,17 @@ class GPUEngine:
         elif settings.process.process_mode == ProcessMode.E6:
             mode_val = 2
 
+        pre_wb_strength = float(settings.process.pre_wb)
+        pre_wb_off = (0.0, 0.0, 0.0)
+        if pre_wb_strength > 0.0 and hasattr(self, "_pre_wb_offsets"):
+            pre_wb_off = self._pre_wb_offsets
+
         n_data = (
             struct.pack("ffff", f[0], f[1], f[2], 0.0)
             + struct.pack("ffff", c[0], c[1], c[2], 0.0)
             + struct.pack("II", mode_val, (1 if settings.process.e6_normalize else 0))
+            + struct.pack("ff", pre_wb_strength, 0.0)
+            + struct.pack("ffff", pre_wb_off[0], pre_wb_off[1], pre_wb_off[2], 0.0)
         )
 
         from negpy.features.exposure.models import EXPOSURE_CONSTANTS
