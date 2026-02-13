@@ -18,7 +18,9 @@ import numpy as np
 
 from negpy.domain.models import WorkspaceConfig, ExportConfig, ExportFormat, ColorSpace
 from negpy.features.exposure.normalization import analyze_log_exposure_bounds
-from negpy.features.flatfield.logic import load_flatfield, load_raw_to_float32, apply_flatfield
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
+from negpy.features.flatfield.logic import load_flatfield, load_raw_to_float32, load_raw_for_analysis, apply_flatfield
 from negpy.features.process.models import ProcessMode
 from negpy.infrastructure.loaders.constants import SUPPORTED_RAW_EXTENSIONS
 from negpy.kernel.image.logic import calculate_file_hash, float_to_uint16, float_to_uint8
@@ -144,12 +146,42 @@ def _robust_mean(data: np.ndarray) -> list[float]:
     return results
 
 
+def _analyze_single_file(
+    file_path: str,
+    flatfield_map: Optional[np.ndarray],
+    analysis_buffer: float,
+    process_mode: str,
+    e6_normalize: bool,
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """Loads and analyzes a single file for roll normalization.
+
+    Runs in a child process via ProcessPoolExecutor. Uses load_raw_for_analysis
+    (half-size, linear demosaic) for faster loading. Returns (floors, ceils) tuple.
+    """
+    f32 = load_raw_for_analysis(file_path)
+    if flatfield_map is not None:
+        f32 = apply_flatfield(f32, flatfield_map)
+
+    bounds = analyze_log_exposure_bounds(
+        f32,
+        analysis_buffer=analysis_buffer,
+        process_mode=process_mode,
+        e6_normalize=e6_normalize,
+    )
+    return bounds.floors, bounds.ceils
+
+
 def analyze_roll(
     files: List[str],
     config: WorkspaceConfig,
     flatfield_map: Optional[np.ndarray] = None,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
     """Analyzes all files to compute roll-wide normalization floors/ceils.
+
+    Uses ProcessPoolExecutor for parallel file processing. Processes are
+    required instead of threads because numba's workqueue threading layer
+    aborts on concurrent thread access. Each child process gets its own
+    numba state, avoiding the conflict.
 
     Returns (locked_floors, locked_ceils) — two 3-float tuples.
     """
@@ -161,29 +193,33 @@ def analyze_roll(
     all_ceils: list[tuple[float, float, float]] = []
 
     total = len(files)
-    print(f"Roll normalization: analyzing {total} file(s) ...", file=sys.stderr)
+    max_workers = min(APP_CONFIG.max_workers, total)
+    print(
+        f"Roll normalization: analyzing {total} file(s) ({max_workers} workers) ...",
+        file=sys.stderr,
+    )
     t_start = time.monotonic()
 
-    for i, file_path in enumerate(files, 1):
-        name = os.path.splitext(os.path.basename(file_path))[0]
-        print(f"  [{i}/{total}] {name} ...", file=sys.stderr, end="", flush=True)
-        t_file = time.monotonic()
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                _analyze_single_file,
+                file_path,
+                flatfield_map,
+                analysis_buffer,
+                process_mode,
+                e6_normalize,
+            ): file_path
+            for file_path in files
+        }
 
-        f32 = load_raw_to_float32(file_path)
-        if flatfield_map is not None:
-            f32 = apply_flatfield(f32, flatfield_map)
-
-        bounds = analyze_log_exposure_bounds(
-            f32,
-            analysis_buffer=analysis_buffer,
-            process_mode=process_mode,
-            e6_normalize=e6_normalize,
-        )
-        all_floors.append(bounds.floors)
-        all_ceils.append(bounds.ceils)
-
-        elapsed = time.monotonic() - t_file
-        print(f" OK ({elapsed:.1f}s)", file=sys.stderr)
+        for i, future in enumerate(as_completed(futures), 1):
+            file_path = futures[future]
+            name = os.path.splitext(os.path.basename(file_path))[0]
+            floors, ceils = future.result()
+            all_floors.append(floors)
+            all_ceils.append(ceils)
+            print(f"  [{i}/{total}] {name} ... OK", file=sys.stderr)
 
     floors_arr = np.array(all_floors)
     ceils_arr = np.array(all_ceils)

@@ -73,6 +73,34 @@ def load_flatfield(path: str) -> np.ndarray:
     return normalize_flatfield(flat)
 
 
+def load_raw_for_analysis(path: str) -> np.ndarray:
+    """Loads any supported image file as linear float32 [0-1] for analysis.
+
+    Uses half-size and linear demosaic for ~6-8x faster loading compared to
+    load_raw_to_float32. Output quality is sufficient for percentile
+    statistics (floors/ceils) but not for final rendering.
+    """
+    import rawpy
+    from negpy.infrastructure.loaders.factory import loader_factory
+    from negpy.kernel.image.logic import uint16_to_float32, ensure_rgb
+
+    ctx_mgr, _metadata = loader_factory.get_loader(path)
+    with ctx_mgr as raw:
+        rgb = raw.postprocess(
+            gamma=(1, 1),
+            no_auto_bright=True,
+            use_camera_wb=False,
+            user_wb=[1, 1, 1, 1],
+            output_bps=16,
+            half_size=True,
+            demosaic_algorithm=rawpy.DemosaicAlgorithm.LINEAR,
+        )
+        rgb = ensure_rgb(rgb)
+
+    f32: np.ndarray = uint16_to_float32(np.ascontiguousarray(rgb))
+    return f32
+
+
 def load_raw_to_float32(path: str) -> np.ndarray:
     """Loads any supported image file as linear float32 [0-1].
 

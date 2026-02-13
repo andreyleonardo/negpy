@@ -9,17 +9,47 @@ import pytest
 import argparse
 import json
 
+from concurrent.futures import Future
 from unittest.mock import patch, MagicMock
+
+import numpy as np
 
 from negpy.cli.batch import (
     build_parser, discover_files, build_config, main,
     load_user_config, generate_default_config, list_available_presets,
-    analyze_roll, _robust_mean, compute_output_dir,
+    analyze_roll, _analyze_single_file, _robust_mean, compute_output_dir,
     CONFIG_SCHEMA_URL,
 )
 from negpy.domain.models import ExportFormat
+from negpy.features.exposure.normalization import LogNegativeBounds
 from negpy.features.process.models import ProcessMode
 from negpy.kernel.system.config import DEFAULT_WORKSPACE_CONFIG
+
+
+class _SynchronousExecutor:
+    """Fake executor that runs tasks synchronously in the calling process.
+
+    Substituted for ProcessPoolExecutor in tests so that module-level mocks
+    (which don't cross process boundaries) still take effect.
+    """
+
+    def __init__(self, **_kwargs):  # type: ignore[no-untyped-def]
+        pass
+
+    def __enter__(self) -> "_SynchronousExecutor":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        pass
+
+    def submit(self, fn, *args, **kwargs):  # type: ignore[no-untyped-def]
+        future: Future = Future()
+        try:
+            result = fn(*args, **kwargs)
+            future.set_result(result)
+        except Exception as e:
+            future.set_exception(e)
+        return future
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -771,16 +801,96 @@ class TestRobustMean:
         assert abs(result[2] - (-4.0)) < 1e-6
 
 
-class TestAnalyzeRoll:
-    """Tests for analyze_roll — two-pass roll normalization analysis."""
+class TestLoadRawForAnalysis:
+    """Tests for load_raw_for_analysis — half-size, linear demosaic loader."""
+
+    @patch("negpy.infrastructure.loaders.factory.loader_factory")
+    def test_uses_half_size_and_linear_demosaic(self, mock_factory):
+        """Verifies half_size=True and LINEAR demosaic are passed to postprocess."""
+        import rawpy
+        from negpy.features.flatfield.logic import load_raw_for_analysis
+
+        fake_rgb = np.ones((50, 50, 3), dtype=np.uint16) * 32768
+        mock_raw = MagicMock()
+        mock_raw.postprocess.return_value = fake_rgb
+        mock_raw.__enter__ = MagicMock(return_value=mock_raw)
+        mock_raw.__exit__ = MagicMock(return_value=False)
+        mock_factory.get_loader.return_value = (mock_raw, {})
+
+        result = load_raw_for_analysis("/fake/test.dng")
+
+        mock_raw.postprocess.assert_called_once()
+        call_kwargs = mock_raw.postprocess.call_args[1]
+        assert call_kwargs["half_size"] is True
+        assert call_kwargs["demosaic_algorithm"] == rawpy.DemosaicAlgorithm.LINEAR
+        assert call_kwargs["output_bps"] == 16
+        assert result.dtype == np.float32
+
+    @patch("negpy.infrastructure.loaders.factory.loader_factory")
+    def test_returns_float32_in_unit_range(self, mock_factory):
+        """Output should be float32 in [0, 1] range."""
+        from negpy.features.flatfield.logic import load_raw_for_analysis
+
+        fake_rgb = np.ones((50, 50, 3), dtype=np.uint16) * 32768  # ~0.5 in float
+        mock_raw = MagicMock()
+        mock_raw.postprocess.return_value = fake_rgb
+        mock_raw.__enter__ = MagicMock(return_value=mock_raw)
+        mock_raw.__exit__ = MagicMock(return_value=False)
+        mock_factory.get_loader.return_value = (mock_raw, {})
+
+        result = load_raw_for_analysis("/fake/test.dng")
+
+        assert result.dtype == np.float32
+        assert result.min() >= 0.0
+        assert result.max() <= 1.0
+
+
+class TestAnalyzeSingleFile:
+    """Tests for _analyze_single_file — the per-file worker used by analyze_roll."""
 
     @patch("negpy.cli.batch.analyze_log_exposure_bounds")
-    @patch("negpy.cli.batch.load_raw_to_float32")
+    @patch("negpy.cli.batch.load_raw_for_analysis")
+    def test_returns_floors_and_ceils(self, mock_load, mock_analyze):
+        """Returns (floors, ceils) tuple from a single file."""
+        mock_load.return_value = np.ones((50, 50, 3), dtype=np.float32) * 0.5
+        mock_analyze.return_value = LogNegativeBounds((-1.5, -2.0, -2.5), (-0.1, -0.2, -0.3))
+
+        floors, ceils = _analyze_single_file(
+            "/fake/a.dng", None, 0.07, ProcessMode.C41, False,
+        )
+
+        assert floors == (-1.5, -2.0, -2.5)
+        assert ceils == (-0.1, -0.2, -0.3)
+        mock_load.assert_called_once_with("/fake/a.dng")
+
+    @patch("negpy.cli.batch.analyze_log_exposure_bounds")
+    @patch("negpy.cli.batch.apply_flatfield")
+    @patch("negpy.cli.batch.load_raw_for_analysis")
+    def test_applies_flatfield_when_provided(self, mock_load, mock_apply_ff, mock_analyze):
+        """When flatfield_map is not None, apply_flatfield is called."""
+        fake_img = np.ones((50, 50, 3), dtype=np.float32) * 0.5
+        fake_ff = np.ones((100, 100, 3), dtype=np.float32)
+        mock_load.return_value = fake_img
+        mock_apply_ff.return_value = fake_img
+        mock_analyze.return_value = LogNegativeBounds((-1.0, -1.0, -1.0), (-0.1, -0.1, -0.1))
+
+        _analyze_single_file("/fake/a.dng", fake_ff, 0.07, ProcessMode.C41, False)
+
+        mock_apply_ff.assert_called_once()
+
+
+class TestAnalyzeRoll:
+    """Tests for analyze_roll — parallel roll normalization analysis.
+
+    ProcessPoolExecutor is replaced with _SynchronousExecutor so that
+    module-level mocks (which don't cross process boundaries) still work.
+    """
+
+    @patch("negpy.cli.batch.ProcessPoolExecutor", _SynchronousExecutor)
+    @patch("negpy.cli.batch.analyze_log_exposure_bounds")
+    @patch("negpy.cli.batch.load_raw_for_analysis")
     def test_returns_floor_ceil_tuples(self, mock_load, mock_analyze):
         """Returns two 3-float tuples (floors, ceils)."""
-        import numpy as np
-        from negpy.features.exposure.normalization import LogNegativeBounds
-
         mock_load.return_value = np.ones((100, 100, 3), dtype=np.float32) * 0.5
         mock_analyze.return_value = LogNegativeBounds((-1.5, -2.0, -2.5), (-0.1, -0.2, -0.3))
 
@@ -793,14 +903,12 @@ class TestAnalyzeRoll:
         assert mock_load.call_count == 2
         assert mock_analyze.call_count == 2
 
+    @patch("negpy.cli.batch.ProcessPoolExecutor", _SynchronousExecutor)
     @patch("negpy.cli.batch.analyze_log_exposure_bounds")
     @patch("negpy.cli.batch.apply_flatfield")
-    @patch("negpy.cli.batch.load_raw_to_float32")
+    @patch("negpy.cli.batch.load_raw_for_analysis")
     def test_applies_flatfield_when_provided(self, mock_load, mock_apply_ff, mock_analyze):
         """When flatfield_map is provided, apply_flatfield is called per file."""
-        import numpy as np
-        from negpy.features.exposure.normalization import LogNegativeBounds
-
         fake_img = np.ones((100, 100, 3), dtype=np.float32) * 0.5
         fake_ff = np.ones((100, 100, 3), dtype=np.float32)
         mock_load.return_value = fake_img
@@ -810,13 +918,12 @@ class TestAnalyzeRoll:
         analyze_roll(["/fake/a.dng"], DEFAULT_WORKSPACE_CONFIG, flatfield_map=fake_ff)
         mock_apply_ff.assert_called_once()
 
+    @patch("negpy.cli.batch.ProcessPoolExecutor", _SynchronousExecutor)
     @patch("negpy.cli.batch.analyze_log_exposure_bounds")
-    @patch("negpy.cli.batch.load_raw_to_float32")
+    @patch("negpy.cli.batch.load_raw_for_analysis")
     def test_forwards_config_params(self, mock_load, mock_analyze):
         """analysis_buffer, process_mode, e6_normalize from config are forwarded."""
-        import numpy as np
         import dataclasses
-        from negpy.features.exposure.normalization import LogNegativeBounds
 
         mock_load.return_value = np.ones((100, 100, 3), dtype=np.float32) * 0.5
         mock_analyze.return_value = LogNegativeBounds((-1.0, -1.0, -1.0), (-0.1, -0.1, -0.1))
@@ -833,6 +940,22 @@ class TestAnalyzeRoll:
         _, kwargs = mock_analyze.call_args
         assert kwargs["analysis_buffer"] == 0.1
         assert kwargs["process_mode"] == ProcessMode.BW
+
+    @patch("negpy.cli.batch.ProcessPoolExecutor", _SynchronousExecutor)
+    @patch("negpy.cli.batch.analyze_log_exposure_bounds")
+    @patch("negpy.cli.batch.load_raw_for_analysis")
+    def test_processes_multiple_files(self, mock_load, mock_analyze):
+        """Multiple files are all processed via ProcessPoolExecutor."""
+        mock_load.return_value = np.ones((50, 50, 3), dtype=np.float32) * 0.5
+        mock_analyze.return_value = LogNegativeBounds((-1.0, -1.0, -1.0), (-0.1, -0.1, -0.1))
+
+        files = [f"/fake/frame_{i}.dng" for i in range(6)]
+        floors, ceils = analyze_roll(files, DEFAULT_WORKSPACE_CONFIG)
+
+        assert len(floors) == 3
+        assert len(ceils) == 3
+        assert mock_load.call_count == 6
+        assert mock_analyze.call_count == 6
 
 
 class TestMainRollAverage:
