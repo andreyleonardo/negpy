@@ -100,6 +100,7 @@ def generate_default_config() -> int:
             "wb_cyan": 0.0,
             "wb_magenta": 0.0,
             "wb_yellow": 0.0,
+            "pre_wb": 0.0,
             "sharpen": 0.25,
             "color_separation": 1.3,
             "saturation": 1.25,
@@ -260,6 +261,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="FLOAT",
         help="Contrast grade (default: 2.0)",
+    )
+
+    parser.add_argument(
+        "--pre-wb",
+        type=float,
+        default=None,
+        metavar="FLOAT",
+        help="Pre-white-balance strength, 0.0-1.0 (default: 0.0). "
+        "Neutralizes per-stock color casts before the characteristic curve, "
+        "similar to NLP's pre-saturation white balance.",
     )
 
     parser.add_argument(
@@ -453,7 +464,10 @@ def build_config(args: argparse.Namespace, user_config: dict) -> WorkspaceConfig
     config = WorkspaceConfig.from_flat_dict(base_dict)
 
     # Layer 5: CLI flags always win
-    process = dataclasses.replace(config.process, process_mode=MODE_MAP[args.mode])
+    process_overrides: dict[str, Any] = {"process_mode": MODE_MAP[args.mode]}
+    if args.pre_wb is not None:
+        process_overrides["pre_wb"] = args.pre_wb
+    process = dataclasses.replace(config.process, **process_overrides)
 
     exposure_overrides = {}
     if args.density is not None:
@@ -520,6 +534,7 @@ def encode_export(buffer: np.ndarray, export_settings: ExportConfig) -> bytes:
         return output_buf.getvalue()
     else:
         from PIL import Image
+
         img_int = float_to_uint8(buffer)
         pil_img = Image.fromarray(img_int)
         output_buf = io.BytesIO()
@@ -647,9 +662,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 elif use_gpu and processor.engine_gpu:
                     # GPU path: use engine_gpu.process() which doesn't pass render_size_ref,
                     # so output uses standard DPI-based sizing (matches process_export)
-                    result_buffer, _metrics = processor.engine_gpu.process(
-                        f32_corrected, config, scale_factor=export_scale
-                    )
+                    result_buffer, _metrics = processor.engine_gpu.process(f32_corrected, config, scale_factor=export_scale)
                 else:
                     # CPU fallback
                     result_buffer, _metrics = processor.run_pipeline(
