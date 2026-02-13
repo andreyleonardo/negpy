@@ -305,21 +305,22 @@ class GPUEngine:
             )
 
         if settings.process.pre_wb > 0.0:
-            wb_source = img.copy()
             if not tiling_mode:
+                wb_source = img.copy()
                 if settings.geometry.rotation != 0:
                     wb_source = np.rot90(wb_source, k=settings.geometry.rotation)
                 if settings.geometry.flip_horizontal:
                     wb_source = np.fliplr(wb_source)
                 if settings.geometry.flip_vertical:
                     wb_source = np.flipud(wb_source)
-            self._pre_wb_offsets = compute_pre_wb_offsets(
-                wb_source,
-                bounds,
-                settings.process.pre_wb,
-                roi if not tiling_mode else None,
-                settings.process.analysis_buffer,
-            )
+                self._pre_wb_offsets = compute_pre_wb_offsets(
+                    wb_source,
+                    bounds,
+                    settings.process.pre_wb,
+                    roi,
+                    settings.process.analysis_buffer,
+                )
+            # In tiling mode, reuse offsets already computed by _process_tiled
         else:
             self._pre_wb_offsets = (0.0, 0.0, 0.0)
 
@@ -993,6 +994,17 @@ class GPUEngine:
                 process_mode=settings.process.process_mode,
                 e6_normalize=settings.process.e6_normalize,
             )
+
+        if settings.process.pre_wb > 0.0:
+            self._pre_wb_offsets = compute_pre_wb_offsets(
+                img_rot,
+                global_bounds,
+                settings.process.pre_wb,
+                (y1, y2, x1, x2),
+                settings.process.analysis_buffer,
+            )
+        else:
+            self._pre_wb_offsets = (0.0, 0.0, 0.0)
 
         paper_w, paper_h, content_w, content_h, off_x, off_y = self._calculate_layout_dims(settings, crop_w, crop_h, None)
         full_source_res = np.zeros((crop_h, crop_w, 3), dtype=np.float32)
